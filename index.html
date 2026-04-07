@@ -1,0 +1,1167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>FREEFALL — Crash Game</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+--bg:#0a0e1a;--panel:rgba(15,20,40,0.85);--border:rgba(0,220,255,0.15);
+--cyan:#00dcff;--green:#00ff88;--red:#ff3355;--orange:#ff8800;--yellow:#ffcc00;
+--text:#e8eaf0;--text-dim:#6a7090;--gold:#ffd700;
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;-webkit-tap-highlight-color:transparent;user-select:none}
+#app{display:flex;flex-direction:column;height:100%;max-width:500px;margin:0 auto;position:relative}
+/* TOP BAR */
+.top-bar{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--panel);border-bottom:1px solid var(--border);backdrop-filter:blur(12px);z-index:10}
+.top-bar .logo{font-family:'Orbitron',sans-serif;font-size:16px;font-weight:900;color:var(--cyan);letter-spacing:2px}
+.balance{font-family:'Orbitron',sans-serif;font-size:14px;color:var(--green)}
+.balance span{color:var(--text-dim);font-size:11px;margin-right:4px}
+.top-icons{display:flex;gap:8px}
+.icon-btn{background:none;border:1px solid var(--border);border-radius:8px;color:var(--text-dim);width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:14px;transition:all .2s}
+.icon-btn:hover,.icon-btn.active{color:var(--cyan);border-color:var(--cyan)}
+
+/* HISTORY BAR */
+.history-bar{display:flex;gap:4px;padding:6px 12px;overflow-x:auto;background:rgba(10,14,26,0.6);scrollbar-width:none}
+.history-bar::-webkit-scrollbar{display:none}
+.history-dot{font-family:'Orbitron',sans-serif;font-size:10px;padding:3px 8px;border-radius:12px;white-space:nowrap;flex-shrink:0;font-weight:700}
+.history-dot.green{background:rgba(0,255,136,0.15);color:var(--green)}
+.history-dot.red{background:rgba(255,51,85,0.15);color:var(--red)}
+.history-dot.gold{background:rgba(255,215,0,0.15);color:var(--gold)}
+
+/* GAME CANVAS */
+.game-area{flex:1;position:relative;overflow:hidden;min-height:0}
+#gameCanvas{width:100%;height:100%;display:block}
+.multiplier-overlay{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-family:'Orbitron',sans-serif;font-weight:900;text-align:center;pointer-events:none;z-index:5;text-shadow:0 0 40px rgba(0,220,255,0.5)}
+.multiplier-text{font-size:64px;line-height:1;transition:color .3s}
+.multiplier-label{font-size:12px;color:var(--text-dim);letter-spacing:3px;margin-top:4px}
+.phase-text{position:absolute;top:15%;left:50%;transform:translateX(-50%);font-family:'Orbitron',sans-serif;font-size:28px;font-weight:900;text-align:center;pointer-events:none;z-index:5}
+.countdown-text{color:var(--cyan);animation:pulse 1s ease infinite}
+.crashed-text{color:var(--red);animation:crashShake .3s ease}
+.cashout-text{color:var(--green)}
+@keyframes pulse{0%,100%{transform:translateX(-50%) scale(1);opacity:1}50%{transform:translateX(-50%) scale(1.1);opacity:0.8}}
+@keyframes crashShake{0%,100%{transform:translateX(-50%)}25%{transform:translateX(calc(-50% + 8px))}75%{transform:translateX(calc(-50% - 8px))}}
+
+/* PLAYERS PANEL */
+.players-panel{position:absolute;right:8px;top:8px;width:130px;z-index:5;pointer-events:none}
+.player-entry{display:flex;justify-content:space-between;align-items:center;padding:3px 8px;margin-bottom:2px;border-radius:6px;font-size:10px;background:rgba(15,20,40,0.7);backdrop-filter:blur(4px)}
+.player-entry .name{color:var(--text-dim)}
+.player-entry .mult{font-family:'Orbitron',sans-serif;font-weight:700}
+.player-entry.active .mult{color:var(--cyan)}
+.player-entry.won .mult{color:var(--green)}
+.player-entry.lost .mult{color:var(--red)}
+
+/* BOTTOM PANEL */
+.bottom-panel{background:var(--panel);border-top:1px solid var(--border);backdrop-filter:blur(12px);padding:10px 12px 14px;z-index:10}
+.bet-row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+.bet-input-group{flex:1;display:flex;align-items:center;background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.bet-input-group button{background:none;border:none;color:var(--cyan);font-size:18px;padding:8px 12px;cursor:pointer;font-weight:700}
+.bet-input-group button:active{background:rgba(0,220,255,0.1)}
+.bet-input-group input{flex:1;background:none;border:none;color:var(--text);text-align:center;font-size:16px;font-family:'Orbitron',sans-serif;outline:none;width:60px;padding:8px 0}
+.presets{display:flex;gap:4px;flex-wrap:wrap}
+.preset-btn{background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:8px;color:var(--text-dim);padding:6px 10px;font-size:11px;cursor:pointer;font-weight:600;transition:all .2s}
+.preset-btn:hover{border-color:var(--cyan);color:var(--cyan)}
+.action-row{display:flex;gap:8px;margin-bottom:8px}
+.btn-main{flex:2;padding:14px;border:none;border-radius:12px;font-family:'Orbitron',sans-serif;font-size:16px;font-weight:900;cursor:pointer;transition:all .2s;letter-spacing:1px}
+.btn-bet{background:linear-gradient(135deg,#00dcff,#0088ff);color:#000;box-shadow:0 4px 20px rgba(0,220,255,0.3)}
+.btn-bet:active{transform:scale(0.97)}
+.btn-bet:disabled{background:linear-gradient(135deg,#333,#444);color:#666;box-shadow:none;cursor:not-allowed}
+.btn-cashout{background:linear-gradient(135deg,#00ff88,#00cc66);color:#000;box-shadow:0 4px 20px rgba(0,255,136,0.3);animation:cashoutPulse 1.5s ease infinite}
+.btn-cashout:active{transform:scale(0.97)}
+@keyframes cashoutPulse{0%,100%{box-shadow:0 4px 20px rgba(0,255,136,0.3)}50%{box-shadow:0 4px 30px rgba(0,255,136,0.5)}}
+.btn-waiting{background:linear-gradient(135deg,#333,#444);color:#888;cursor:not-allowed}
+.options-row{display:flex;gap:8px;align-items:center}
+.option-group{display:flex;align-items:center;gap:6px;flex:1}
+.option-label{font-size:10px;color:var(--text-dim);white-space:nowrap}
+.toggle{position:relative;width:36px;height:20px;background:rgba(255,255,255,0.1);border-radius:10px;cursor:pointer;transition:background .3s;flex-shrink:0}
+.toggle.on{background:var(--cyan)}
+.toggle::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;background:white;border-radius:50%;transition:transform .2s}
+.toggle.on::after{transform:translateX(16px)}
+.auto-input{width:60px;background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;font-family:'Orbitron',sans-serif;text-align:center;padding:4px;outline:none}
+.auto-input:focus{border-color:var(--cyan)}
+
+/* SIDE BET */
+.side-bet-row{display:flex;gap:8px;align-items:center;margin-bottom:8px;padding:6px 10px;background:rgba(255,215,0,0.05);border:1px solid rgba(255,215,0,0.15);border-radius:10px}
+.side-bet-row .option-label{color:var(--gold)}
+
+/* PROVABLY FAIR */
+.pf-section{position:absolute;bottom:100%;left:0;right:0;background:var(--panel);border-top:1px solid var(--border);backdrop-filter:blur(12px);padding:12px;z-index:20;transform:translateY(100%);opacity:0;transition:all .3s;pointer-events:none}
+.pf-section.open{transform:translateY(0);opacity:1;pointer-events:all}
+.pf-title{font-family:'Orbitron',sans-serif;font-size:12px;color:var(--cyan);margin-bottom:8px;letter-spacing:1px}
+.pf-hash{font-size:10px;color:var(--text-dim);word-break:break-all;background:rgba(0,0,0,0.3);padding:6px;border-radius:6px;margin-bottom:4px;font-family:monospace}
+.pf-label{font-size:9px;color:var(--text-dim);margin-bottom:2px}
+
+/* WIND EVENT INDICATOR */
+.wind-indicator{position:absolute;top:50%;left:12px;transform:translateY(-50%);z-index:6;pointer-events:none;opacity:0;transition:opacity .5s}
+.wind-indicator.visible{opacity:1}
+.wind-icon{font-size:20px}
+.wind-label{font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:1px}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top-bar">
+    <div class="logo">FREEFALL</div>
+    <div class="balance"><span>$</span><span id="balanceDisplay">1000.00</span></div>
+    <div class="top-icons">
+      <button class="icon-btn" id="soundToggle" title="Sound">🔊</button>
+      <button class="icon-btn" id="fairToggle" title="Provably Fair">🔒</button>
+    </div>
+  </div>
+  <div class="history-bar" id="historyBar"></div>
+  <div class="game-area">
+    <canvas id="gameCanvas"></canvas>
+    <div class="multiplier-overlay" id="multiplierOverlay" style="display:none">
+      <div class="multiplier-text" id="multiplierText">1.00x</div>
+      <div class="multiplier-label">ALTITUDE</div>
+    </div>
+    <div class="phase-text" id="phaseText" style="display:none"></div>
+    <div class="players-panel" id="playersPanel"></div>
+    <div class="wind-indicator" id="windIndicator">
+      <div class="wind-icon" id="windIcon"></div>
+      <div class="wind-label" id="windLabel"></div>
+    </div>
+    <div class="pf-section" id="pfSection">
+      <div class="pf-title">PROVABLY FAIR</div>
+      <div class="pf-label">Round Hash (before)</div>
+      <div class="pf-hash" id="pfHash">-</div>
+      <div class="pf-label">Seed (revealed after crash)</div>
+      <div class="pf-hash" id="pfSeed">-</div>
+      <div class="pf-label">Crash Point</div>
+      <div class="pf-hash" id="pfCrash">-</div>
+    </div>
+  </div>
+  <div class="bottom-panel">
+    <div class="side-bet-row" id="sideBetRow">
+      <span class="option-label" style="color:var(--gold)">TRICK BET</span>
+      <div class="toggle" id="sideBetToggle"></div>
+      <span class="option-label">Target:</span>
+      <input type="number" class="auto-input" id="sideBetTarget" value="3.00" min="1.5" max="1000" step="0.5">
+      <span class="option-label" style="font-size:9px;color:var(--gold)">3:1</span>
+    </div>
+    <div class="bet-row">
+      <div class="bet-input-group">
+        <button id="betMinus">−</button>
+        <input type="number" id="betInput" value="10" min="1" max="500" step="1">
+        <button id="betPlus">+</button>
+      </div>
+      <div class="presets">
+        <button class="preset-btn" data-amt="1">$1</button>
+        <button class="preset-btn" data-amt="5">$5</button>
+        <button class="preset-btn" data-amt="10">$10</button>
+        <button class="preset-btn" data-amt="25">$25</button>
+        <button class="preset-btn" data-amt="50">$50</button>
+        <button class="preset-btn" data-amt="100">$100</button>
+      </div>
+    </div>
+    <div class="action-row">
+      <button class="btn-main btn-bet" id="actionBtn">PLACE BET</button>
+    </div>
+    <div class="options-row">
+      <div class="option-group">
+        <span class="option-label">AUTO CASHOUT</span>
+        <div class="toggle" id="autoCashoutToggle"></div>
+        <input type="number" class="auto-input" id="autoCashoutInput" value="2.00" min="1.01" max="1000" step="0.1">
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ========== AUDIO ENGINE ==========
+class AudioEngine {
+  constructor() {
+    this.ctx = null; this.enabled = true; this.initialized = false;
+    this.windNode = null; this.windGain = null; this.heartOsc = null; this.heartGain = null;
+  }
+  init() {
+    if (this.initialized) return;
+    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    this.masterGain = this.ctx.createGain();
+    this.masterGain.gain.value = 0.3;
+    this.masterGain.connect(this.ctx.destination);
+    this.initialized = true;
+  }
+  toggle() {
+    this.enabled = !this.enabled;
+    if (this.masterGain) this.masterGain.gain.value = this.enabled ? 0.3 : 0;
+    return this.enabled;
+  }
+  startWind() {
+    if (!this.initialized) return;
+    const bufSize = this.ctx.sampleRate * 2;
+    const buf = this.ctx.createBuffer(1, bufSize, this.ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
+    this.windNode = this.ctx.createBufferSource();
+    this.windNode.buffer = buf; this.windNode.loop = true;
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass'; filter.frequency.value = 800; filter.Q.value = 0.5;
+    this.windGain = this.ctx.createGain(); this.windGain.gain.value = 0.05;
+    this.windNode.connect(filter); filter.connect(this.windGain); this.windGain.connect(this.masterGain);
+    this.windNode.start();
+  }
+  updateWind(multiplier) {
+    if (!this.windGain) return;
+    const intensity = Math.min(0.4, 0.05 + (multiplier - 1) * 0.02);
+    this.windGain.gain.setTargetAtTime(intensity, this.ctx.currentTime, 0.1);
+  }
+  stopWind() {
+    if (this.windNode) { try { this.windNode.stop(); } catch(e){} this.windNode = null; }
+    this.windGain = null;
+  }
+  startHeartbeat() {
+    if (!this.initialized) return;
+    this.heartGain = this.ctx.createGain(); this.heartGain.gain.value = 0;
+    this.heartGain.connect(this.masterGain);
+    this._heartbeatLoop(0.8);
+  }
+  _heartbeatLoop(interval) {
+    if (!this.heartGain || !this.initialized) return;
+    this._heartbeatInterval = interval;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sine'; osc.frequency.value = 55;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0, now); g.gain.linearRampToValueAtTime(0.3, now + 0.05);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+    osc.connect(g); g.connect(this.masterGain);
+    osc.start(now); osc.stop(now + 0.25);
+    this._heartTimer = setTimeout(() => this._heartbeatLoop(this._heartbeatInterval), interval * 1000);
+  }
+  updateHeartbeat(multiplier) {
+    const interval = Math.max(0.2, 0.8 - (multiplier - 1) * 0.04);
+    this._heartbeatInterval = interval;
+  }
+  stopHeartbeat() {
+    clearTimeout(this._heartTimer); this.heartGain = null;
+  }
+  playBeep(freq = 880, dur = 0.1) {
+    if (!this.initialized) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    osc.type = 'square'; osc.frequency.value = freq;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.15, now); g.gain.exponentialRampToValueAtTime(0.001, now + dur);
+    osc.connect(g); g.connect(this.masterGain);
+    osc.start(now); osc.stop(now + dur + 0.01);
+  }
+  playCashout() {
+    if (!this.initialized) return;
+    const now = this.ctx.currentTime;
+    [1200, 1600, 2000].forEach((f, i) => {
+      const osc = this.ctx.createOscillator(); osc.type = 'sine'; osc.frequency.value = f;
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0, now + i * 0.08); g.gain.linearRampToValueAtTime(0.2, now + i * 0.08 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, now + i * 0.08 + 0.3);
+      osc.connect(g); g.connect(this.masterGain);
+      osc.start(now + i * 0.08); osc.stop(now + i * 0.08 + 0.35);
+    });
+    // woosh
+    const buf = this.ctx.createBuffer(1, this.ctx.sampleRate, this.ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    const n = this.ctx.createBufferSource(); n.buffer = buf;
+    const flt = this.ctx.createBiquadFilter(); flt.type = 'bandpass'; flt.frequency.value = 2000; flt.Q.value = 1;
+    const g2 = this.ctx.createGain();
+    g2.gain.setValueAtTime(0.15, now); g2.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+    n.connect(flt); flt.connect(g2); g2.connect(this.masterGain);
+    n.start(now); n.stop(now + 0.6);
+  }
+  playCrash() {
+    if (!this.initialized) return;
+    const now = this.ctx.currentTime;
+    setTimeout(() => {
+      const t = this.ctx.currentTime;
+      const buf = this.ctx.createBuffer(1, this.ctx.sampleRate, this.ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (this.ctx.sampleRate * 0.15));
+      const n = this.ctx.createBufferSource(); n.buffer = buf;
+      const flt = this.ctx.createBiquadFilter(); flt.type = 'lowpass'; flt.frequency.value = 200;
+      const g = this.ctx.createGain(); g.gain.setValueAtTime(0.5, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+      n.connect(flt); flt.connect(g); g.connect(this.masterGain);
+      n.start(t); n.stop(t + 0.7);
+    }, 300);
+  }
+  playWindEvent(type) {
+    if (!this.initialized) return;
+    const now = this.ctx.currentTime;
+    const buf = this.ctx.createBuffer(1, this.ctx.sampleRate * 2, this.ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    const n = this.ctx.createBufferSource(); n.buffer = buf;
+    const flt = this.ctx.createBiquadFilter();
+    flt.type = 'bandpass';
+    if (type === 'updraft') { flt.frequency.value = 600; flt.Q.value = 2; }
+    else if (type === 'downdraft') { flt.frequency.value = 300; flt.Q.value = 1; }
+    else { flt.frequency.value = 150; flt.Q.value = 0.5; }
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0, now); g.gain.linearRampToValueAtTime(0.25, now + 0.3);
+    g.gain.setValueAtTime(0.25, now + 1.5); g.gain.exponentialRampToValueAtTime(0.001, now + 2.5);
+    n.connect(flt); flt.connect(g); g.connect(this.masterGain);
+    n.start(now); n.stop(now + 3);
+  }
+}
+
+// ========== PROVABLY FAIR ==========
+function generateSeed() {
+  const chars = '0123456789abcdef';
+  let s = ''; for (let i = 0; i < 64; i++) s += chars[Math.floor(Math.random() * 16)];
+  return s;
+}
+async function hashSeed(seed) {
+  const enc = new TextEncoder().encode(seed);
+  const buf = await crypto.subtle.digest('SHA-256', enc);
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// ========== CRASH POINT ==========
+function generateCrashPoint() {
+  return Math.max(1.00, Math.floor(96.5 / (1 - Math.random()) * 100) / 100);
+}
+function cappedCrashPoint() {
+  return Math.min(1000, generateCrashPoint());
+}
+
+// ========== BOTS ==========
+function createBots() {
+  const names = ['SkyCat','DiveKing','FreeFly','CloudNine','AirWolf','WindRider','FalconX','JetSet','StormDive','AceHigh'];
+  return names.slice(0, 5 + Math.floor(Math.random() * 6)).map(name => ({
+    name, bet: Math.floor(Math.random() * 50 + 1),
+    cashoutTarget: Math.random() < 0.6 ? 1.2 + Math.random() * 1.5 : (Math.random() < 0.7 ? 2.5 + Math.random() * 5 : 8 + Math.random() * 20),
+    cashedOut: false, mult: null
+  }));
+}
+
+// ========== GAME STATE ==========
+const state = {
+  phase: 'BETTING', // BETTING, COUNTDOWN, FALLING, CRASHED, CASHED_OUT
+  balance: 1000,
+  bet: 10,
+  betPlaced: false,
+  sideBetOn: false,
+  sideBetTarget: 3.0,
+  autoCashoutOn: false,
+  autoCashoutTarget: 2.0,
+  crashPoint: 1.00,
+  currentMultiplier: 1.00,
+  roundStart: 0,
+  roundDuration: 10,
+  speed: 0,
+  countdownLeft: 5,
+  bettingTimer: 5,
+  bots: [],
+  history: [],
+  seed: '',
+  hash: '',
+  particles: [],
+  clouds: [],
+  stars: [],
+  shakeX: 0, shakeY: 0,
+  windEvent: null,
+  windEventTimer: 0,
+  skydiverY: 0,
+  skydiverLimbs: 0,
+  parachuteOpen: false,
+  cashoutMultiplier: 0,
+  winAmount: 0,
+};
+
+// ========== DOM REFS ==========
+const $ = id => document.getElementById(id);
+const canvas = $('gameCanvas');
+const ctx = canvas.getContext('2d');
+const audio = new AudioEngine();
+
+// ========== CANVAS SETUP ==========
+let W, H, dpr;
+function resizeCanvas() {
+  dpr = window.devicePixelRatio || 1;
+  const rect = canvas.parentElement.getBoundingClientRect();
+  W = rect.width; H = rect.height;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// ========== INIT CLOUDS & STARS ==========
+function initClouds() {
+  state.clouds = [];
+  for (let i = 0; i < 15; i++) {
+    state.clouds.push({
+      x: Math.random() * W, y: Math.random() * H,
+      w: 60 + Math.random() * 100, h: 20 + Math.random() * 40,
+      speed: 0.3 + Math.random() * 0.5, opacity: 0.2 + Math.random() * 0.4,
+      layer: Math.floor(Math.random() * 3)
+    });
+  }
+  state.stars = [];
+  for (let i = 0; i < 100; i++) {
+    state.stars.push({
+      x: Math.random() * W, y: Math.random() * H,
+      size: 0.5 + Math.random() * 2, twinkle: Math.random() * Math.PI * 2
+    });
+  }
+}
+initClouds();
+
+// ========== PARTICLE SYSTEM ==========
+function spawnParticles(x, y, color, count = 10) {
+  for (let i = 0; i < count; i++) {
+    state.particles.push({
+      x, y, vx: (Math.random() - 0.5) * 4, vy: (Math.random() - 0.5) * 4 - 2,
+      life: 1, decay: 0.01 + Math.random() * 0.02, color, size: 2 + Math.random() * 3
+    });
+  }
+}
+
+// ========== RENDERING ==========
+function getMultiplierColor(m) {
+  if (m < 1.5) return '#00ff88';
+  if (m < 2.5) return '#66ff44';
+  if (m < 5) return '#ffcc00';
+  if (m < 10) return '#ff8800';
+  return '#ff3355';
+}
+
+function getSkyGradient(m) {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  if (m < 2) {
+    g.addColorStop(0, '#1a3a6a'); g.addColorStop(0.5, '#2a5a9a'); g.addColorStop(1, '#4a8ad0');
+  } else if (m < 5) {
+    g.addColorStop(0, '#0e1f4a'); g.addColorStop(0.5, '#1a3570'); g.addColorStop(1, '#2a5090');
+  } else if (m < 10) {
+    g.addColorStop(0, '#08102a'); g.addColorStop(0.5, '#101840'); g.addColorStop(1, '#1a2860');
+  } else {
+    g.addColorStop(0, '#020510'); g.addColorStop(0.3, '#050a1a'); g.addColorStop(1, '#0a1030');
+  }
+  return g;
+}
+
+function drawStars(m, t) {
+  if (m < 5) return;
+  const alpha = Math.min(1, (m - 5) / 10);
+  state.stars.forEach(s => {
+    const tw = Math.sin(s.twinkle + t * 2) * 0.3 + 0.7;
+    ctx.globalAlpha = alpha * tw;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2); ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+  // aurora at 10x+
+  if (m >= 10) {
+    const aAlpha = Math.min(0.15, (m - 10) / 50);
+    const ag = ctx.createLinearGradient(0, H * 0.6, 0, H);
+    ag.addColorStop(0, `rgba(0, 255, 136, ${aAlpha})`);
+    ag.addColorStop(0.5, `rgba(0, 220, 255, ${aAlpha * 0.5})`);
+    ag.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = ag; ctx.fillRect(0, H * 0.5, W, H * 0.5);
+  }
+}
+
+function drawClouds(m, t) {
+  if (m > 12) return;
+  const alpha = m > 8 ? Math.max(0, 1 - (m - 8) / 4) : 1;
+  const scrollSpeed = state.phase === 'FALLING' ? (1 + (m - 1) * 0.5) : 0.2;
+  let windMod = 1;
+  if (state.windEvent === 'updraft') windMod = 0.3;
+  else if (state.windEvent === 'downdraft') windMod = 2.5;
+  state.clouds.forEach(c => {
+    c.y += c.speed * scrollSpeed * windMod;
+    if (c.y > H + 50) { c.y = -50; c.x = Math.random() * W; }
+    ctx.globalAlpha = c.opacity * alpha;
+    ctx.fillStyle = '#ffffff';
+    // fluffy cloud shape
+    const cx = c.x, cy = c.y, cw = c.w, ch = c.h;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, cw / 2, ch / 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(cx - cw * 0.25, cy - ch * 0.15, cw * 0.3, ch * 0.35, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(cx + cw * 0.2, cy - ch * 0.1, cw * 0.25, ch * 0.3, 0, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+  // earth curvature at 5x+
+  if (m >= 5) {
+    const cAlpha = Math.min(0.5, (m - 5) / 10);
+    ctx.globalAlpha = cAlpha;
+    const eg = ctx.createLinearGradient(0, H - 60, 0, H);
+    eg.addColorStop(0, 'rgba(100,180,255,0)');
+    eg.addColorStop(0.4, 'rgba(80,160,230,0.3)');
+    eg.addColorStop(1, 'rgba(60,140,200,0.6)');
+    ctx.fillStyle = eg;
+    ctx.beginPath();
+    ctx.ellipse(W / 2, H + 200, W * 1.5, 280, 0, Math.PI, 0);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+}
+
+function drawSpeedLines(m, t) {
+  if (m < 1.5 && state.windEvent !== 'downdraft') return;
+  let intensity = Math.min(20, (m - 1) * 3);
+  if (state.windEvent === 'downdraft') intensity *= 2;
+  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < intensity; i++) {
+    const x = Math.random() * W;
+    const y = (t * 500 * (1 + Math.random()) + i * 100) % (H + 100) - 50;
+    const len = 20 + Math.random() * 40 + m * 3;
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + (Math.random() - 0.5) * 3, y + len); ctx.stroke();
+  }
+}
+
+function drawSkydiver(t, m) {
+  const cx = W / 2 + Math.sin(t * 2) * 8 + state.shakeX;
+  const cy = H * 0.4 + Math.sin(t * 3) * 5 + state.shakeY;
+  const limbPhase = t * 4;
+
+  if (state.windEvent === 'updraft') {
+    // draw updraft effect — character shifts up
+    const uy = cy - 15;
+    drawSkydiverBody(cx, uy, limbPhase, m, t);
+  } else if (state.windEvent === 'downdraft') {
+    const dy = cy + 10;
+    drawSkydiverBody(cx, dy, limbPhase * 1.5, m, t);
+  } else {
+    drawSkydiverBody(cx, cy, limbPhase, m, t);
+  }
+}
+
+function drawSkydiverBody(cx, cy, limbPhase, m, t) {
+  ctx.save();
+  ctx.translate(cx, cy);
+
+  // suit glow based on multiplier
+  const glowColor = getMultiplierColor(m);
+  ctx.shadowColor = glowColor;
+  ctx.shadowBlur = 10 + m;
+
+  // body (torso)
+  ctx.fillStyle = '#1a1a3a';
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 12, 18, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // helmet
+  ctx.fillStyle = glowColor;
+  ctx.beginPath();
+  ctx.arc(0, -22, 9, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#111';
+  ctx.beginPath();
+  ctx.arc(0, -20, 6, 0, Math.PI);
+  ctx.fill();
+
+  // arms (spread out, waving)
+  ctx.strokeStyle = '#1a1a3a';
+  ctx.lineWidth = 5;
+  ctx.lineCap = 'round';
+  const armAngle = Math.sin(limbPhase) * 0.3;
+  // left arm
+  ctx.beginPath();
+  ctx.moveTo(-10, -5);
+  ctx.lineTo(-28 - Math.sin(limbPhase) * 5, 5 + Math.cos(limbPhase) * 8);
+  ctx.stroke();
+  // right arm
+  ctx.beginPath();
+  ctx.moveTo(10, -5);
+  ctx.lineTo(28 + Math.sin(limbPhase + 1) * 5, 5 + Math.cos(limbPhase + 1) * 8);
+  ctx.stroke();
+
+  // legs (spread, kicking)
+  ctx.beginPath();
+  ctx.moveTo(-5, 15);
+  ctx.lineTo(-15 - Math.sin(limbPhase * 0.8) * 4, 35 + Math.cos(limbPhase * 0.8) * 5);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(5, 15);
+  ctx.lineTo(15 + Math.sin(limbPhase * 0.8 + 1) * 4, 35 + Math.cos(limbPhase * 0.8 + 1) * 5);
+  ctx.stroke();
+
+  // suit stripes (neon accents)
+  ctx.strokeStyle = glowColor;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(-8, -8); ctx.lineTo(-8, 10);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(8, -8); ctx.lineTo(8, 10);
+  ctx.stroke();
+
+  // parachute backpack
+  ctx.fillStyle = '#333';
+  ctx.fillRect(-6, -12, 12, 8);
+
+  ctx.shadowBlur = 0;
+  ctx.restore();
+}
+
+function drawBotSkydivers(t, m) {
+  state.bots.forEach((bot, i) => {
+    if (bot.cashedOut) return;
+    const bx = W * 0.15 + (i % 5) * (W * 0.15) + Math.sin(t * 1.5 + i * 2) * 10;
+    const by = H * 0.3 + (i % 3) * 30 + Math.sin(t * 2 + i) * 8;
+    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = '#445';
+    ctx.beginPath();
+    ctx.ellipse(bx, by, 5, 8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // tiny limbs
+    ctx.strokeStyle = '#445'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+    const lp = t * 3 + i;
+    ctx.beginPath(); ctx.moveTo(bx - 4, by - 2); ctx.lineTo(bx - 10 + Math.sin(lp) * 3, by + 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(bx + 4, by - 2); ctx.lineTo(bx + 10 - Math.sin(lp) * 3, by + 2); ctx.stroke();
+    ctx.globalAlpha = 1;
+  });
+}
+
+function drawBotParachutes(t) {
+  state.bots.forEach((bot, i) => {
+    if (!bot.cashedOut) return;
+    const bx = W * 0.15 + (i % 5) * (W * 0.15) + Math.sin(t * 0.5 + i) * 20;
+    const by = Math.min(H + 50, H * 0.3 + (t - bot.cashoutTime) * 30);
+    const drift = Math.sin(t * 0.8 + i) * 15;
+    ctx.globalAlpha = Math.max(0, 1 - (by - H * 0.5) / H);
+    // parachute canopy
+    ctx.fillStyle = ['#ff6688', '#66ccff', '#ffaa44', '#88ff66', '#cc88ff'][i % 5];
+    ctx.beginPath();
+    ctx.ellipse(bx + drift, by - 25, 14, 10, 0, Math.PI, 0);
+    ctx.fill();
+    // lines
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 0.5;
+    ctx.beginPath(); ctx.moveTo(bx + drift - 10, by - 18); ctx.lineTo(bx + drift, by); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(bx + drift + 10, by - 18); ctx.lineTo(bx + drift, by); ctx.stroke();
+    // body
+    ctx.fillStyle = '#556';
+    ctx.beginPath(); ctx.ellipse(bx + drift, by, 3, 5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+  });
+}
+
+function drawParticles() {
+  state.particles.forEach(p => {
+    ctx.globalAlpha = p.life;
+    ctx.fillStyle = p.color;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2); ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+}
+
+function drawCrashedScene(t) {
+  // impact flash
+  const flashAlpha = Math.max(0, 0.5 - t * 2);
+  if (flashAlpha > 0) {
+    ctx.globalAlpha = flashAlpha;
+    ctx.fillStyle = '#ff3355';
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = 1;
+  }
+}
+
+function drawPlayerParachute(t, m) {
+  const cx = W / 2 + Math.sin(t * 0.8) * 20;
+  const cy = H * 0.45 + Math.min(80, t * 20);
+  // canopy
+  ctx.fillStyle = '#00ff88';
+  ctx.beginPath();
+  ctx.ellipse(cx, cy - 40, 30, 18, 0, Math.PI, 0);
+  ctx.fill();
+  // lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 1;
+  for (let i = -2; i <= 2; i++) {
+    ctx.beginPath(); ctx.moveTo(cx + i * 12, cy - 28); ctx.lineTo(cx, cy); ctx.stroke();
+  }
+  // body
+  ctx.fillStyle = '#1a1a3a';
+  ctx.beginPath(); ctx.ellipse(cx, cy + 5, 8, 12, 0, 0, Math.PI * 2); ctx.fill();
+  // helmet
+  ctx.fillStyle = '#00ff88';
+  ctx.beginPath(); ctx.arc(cx, cy - 10, 6, 0, Math.PI * 2); ctx.fill();
+}
+
+function drawBettingScene(t) {
+  // airplane interior hint
+  ctx.fillStyle = 'rgba(40, 50, 70, 0.3)';
+  ctx.fillRect(0, 0, W, H);
+  // draw a simple airplane door/hatch
+  const doorX = W / 2, doorY = H * 0.35;
+  ctx.strokeStyle = 'rgba(0,220,255,0.2)';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(doorX - 40, doorY - 50, 80, 100);
+  // sky visible through door
+  const dg = ctx.createRadialGradient(doorX, doorY, 10, doorX, doorY, 50);
+  dg.addColorStop(0, 'rgba(60,130,200,0.4)');
+  dg.addColorStop(1, 'rgba(20,40,80,0)');
+  ctx.fillStyle = dg;
+  ctx.fillRect(doorX - 38, doorY - 48, 76, 96);
+
+  // waiting skydivers (bots)
+  state.bots.forEach((bot, i) => {
+    const bx = 30 + (i % 4) * 40 + Math.sin(t + i) * 3;
+    const by = H * 0.6 + Math.floor(i / 4) * 35;
+    ctx.globalAlpha = 0.4;
+    ctx.fillStyle = '#556';
+    ctx.beginPath(); ctx.ellipse(bx, by, 6, 10, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(bx, by - 13, 5, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+  });
+}
+
+function render(timestamp) {
+  const t = timestamp / 1000;
+  ctx.clearRect(0, 0, W, H);
+
+  // screen shake
+  if (state.windEvent === 'turbulence') {
+    state.shakeX = (Math.random() - 0.5) * 6;
+    state.shakeY = (Math.random() - 0.5) * 6;
+  } else {
+    state.shakeX *= 0.9; state.shakeY *= 0.9;
+  }
+
+  const m = state.currentMultiplier;
+
+  // sky background
+  ctx.fillStyle = getSkyGradient(m);
+  ctx.fillRect(0, 0, W, H);
+
+  if (state.phase === 'BETTING' || state.phase === 'COUNTDOWN') {
+    drawStars(1, t);
+    drawClouds(1.5, t);
+    drawBettingScene(t);
+  } else if (state.phase === 'FALLING') {
+    drawStars(m, t);
+    drawClouds(m, t);
+    drawSpeedLines(m, t);
+    drawBotParachutes(t);
+    drawBotSkydivers(t, m);
+    drawSkydiver(t, m);
+  } else if (state.phase === 'CRASHED') {
+    const elapsed = (Date.now() - state.crashTime) / 1000;
+    drawStars(m, t);
+    drawClouds(m, t);
+    drawCrashedScene(elapsed);
+  } else if (state.phase === 'CASHED_OUT') {
+    const elapsed = (Date.now() - state.cashoutTime) / 1000;
+    drawStars(m, t);
+    drawClouds(m, t);
+    drawBotParachutes(t);
+    drawPlayerParachute(elapsed, m);
+  }
+
+  // particles
+  drawParticles();
+  state.particles.forEach(p => { p.x += p.vx; p.y += p.vy; p.life -= p.decay; });
+  state.particles = state.particles.filter(p => p.life > 0);
+
+  requestAnimationFrame(render);
+}
+
+// ========== GAME LOOP ==========
+let gameLoopTimer = null;
+
+function updateUI() {
+  $('balanceDisplay').textContent = state.balance.toFixed(2);
+
+  // multiplier overlay
+  const mo = $('multiplierOverlay');
+  const mt = $('multiplierText');
+  const pt = $('phaseText');
+
+  if (state.phase === 'FALLING') {
+    mo.style.display = 'block';
+    mt.textContent = state.currentMultiplier.toFixed(2) + 'x';
+    mt.style.color = getMultiplierColor(state.currentMultiplier);
+    mt.style.textShadow = `0 0 40px ${getMultiplierColor(state.currentMultiplier)}40`;
+    // jitter if turbulence
+    if (state.windEvent === 'turbulence') {
+      mt.style.transform = `translate(${(Math.random()-0.5)*4}px, ${(Math.random()-0.5)*4}px)`;
+    } else {
+      mt.style.transform = '';
+    }
+    pt.style.display = 'none';
+  } else if (state.phase === 'BETTING') {
+    mo.style.display = 'none';
+    pt.style.display = 'block';
+    pt.className = 'phase-text countdown-text';
+    pt.innerHTML = `PLACE BETS<br><span style="font-size:48px">${Math.ceil(state.bettingTimer)}</span>`;
+  } else if (state.phase === 'COUNTDOWN') {
+    mo.style.display = 'none';
+    pt.style.display = 'block';
+    pt.className = 'phase-text countdown-text';
+    const c = Math.ceil(state.countdownLeft);
+    pt.textContent = c > 0 ? c : 'JUMP!';
+    pt.style.fontSize = c > 0 ? '64px' : '48px';
+  } else if (state.phase === 'CRASHED') {
+    mo.style.display = 'block';
+    mt.textContent = state.crashPoint.toFixed(2) + 'x';
+    mt.style.color = 'var(--red)';
+    mt.style.textShadow = '0 0 40px rgba(255,51,85,0.5)';
+    pt.style.display = 'block';
+    pt.className = 'phase-text crashed-text';
+    pt.textContent = 'CRASHED!';
+  } else if (state.phase === 'CASHED_OUT') {
+    mo.style.display = 'block';
+    mt.textContent = state.cashoutMultiplier.toFixed(2) + 'x';
+    mt.style.color = 'var(--green)';
+    mt.style.textShadow = '0 0 40px rgba(0,255,136,0.5)';
+    pt.style.display = 'block';
+    pt.className = 'phase-text cashout-text';
+    pt.innerHTML = `CASHED OUT!<br><span style="font-size:20px;color:var(--green)">+$${state.winAmount.toFixed(2)}</span>`;
+  }
+
+  // action button
+  const btn = $('actionBtn');
+  if (state.phase === 'BETTING') {
+    if (state.betPlaced) {
+      btn.className = 'btn-main btn-waiting';
+      btn.textContent = 'BET PLACED ✓';
+      btn.disabled = true;
+    } else {
+      btn.className = 'btn-main btn-bet';
+      btn.textContent = 'PLACE BET';
+      btn.disabled = false;
+    }
+  } else if (state.phase === 'COUNTDOWN') {
+    btn.className = 'btn-main btn-waiting';
+    btn.textContent = 'JUMPING...';
+    btn.disabled = true;
+  } else if (state.phase === 'FALLING' && state.betPlaced) {
+    btn.className = 'btn-main btn-cashout';
+    btn.textContent = `PARACHUTE (${state.currentMultiplier.toFixed(2)}x)`;
+    btn.disabled = false;
+  } else if (state.phase === 'FALLING' && !state.betPlaced) {
+    btn.className = 'btn-main btn-waiting';
+    btn.textContent = 'WATCHING...';
+    btn.disabled = true;
+  } else {
+    btn.className = 'btn-main btn-waiting';
+    btn.textContent = 'NEXT ROUND...';
+    btn.disabled = true;
+  }
+
+  // players panel
+  updatePlayersPanel();
+
+  // wind indicator
+  const wi = $('windIndicator');
+  if (state.windEvent) {
+    wi.classList.add('visible');
+    if (state.windEvent === 'updraft') { $('windIcon').textContent = '⬆'; $('windLabel').textContent = 'UPDRAFT'; $('windLabel').style.color = '#00ff88'; }
+    else if (state.windEvent === 'downdraft') { $('windIcon').textContent = '⬇'; $('windLabel').textContent = 'DOWNDRAFT'; $('windLabel').style.color = '#ff3355'; }
+    else { $('windIcon').textContent = '🌀'; $('windLabel').textContent = 'TURBULENCE'; $('windLabel').style.color = '#ffcc00'; }
+  } else {
+    wi.classList.remove('visible');
+  }
+}
+
+function updatePlayersPanel() {
+  const panel = $('playersPanel');
+  let html = '';
+  state.bots.forEach(bot => {
+    const cls = bot.cashedOut ? 'won' : (state.phase === 'CRASHED' ? 'lost' : 'active');
+    const mult = bot.cashedOut ? bot.mult.toFixed(2) + 'x' : (state.phase === 'FALLING' ? '...' : '—');
+    html += `<div class="player-entry ${cls}"><span class="name">${bot.name}</span><span class="mult">${mult}</span></div>`;
+  });
+  panel.innerHTML = html;
+}
+
+function updateHistory() {
+  const bar = $('historyBar');
+  bar.innerHTML = state.history.slice(-20).reverse().map(h => {
+    const cls = h.cp < 2 ? 'red' : (h.cp >= 10 ? 'gold' : 'green');
+    return `<div class="history-dot ${cls}">${h.cp.toFixed(2)}x</div>`;
+  }).join('');
+}
+
+// ========== GAME PHASES ==========
+async function startBettingPhase() {
+  state.phase = 'BETTING';
+  state.betPlaced = false;
+  state.bots = createBots();
+  state.windEvent = null;
+  state.parachuteOpen = false;
+  state.particles = [];
+
+  // generate provably fair
+  state.seed = generateSeed();
+  state.hash = await hashSeed(state.seed);
+  state.crashPoint = cappedCrashPoint();
+
+  $('pfHash').textContent = state.hash;
+  $('pfSeed').textContent = 'Revealed after round';
+  $('pfCrash').textContent = '?';
+
+  // calculate round parameters
+  const cp = state.crashPoint;
+  state.roundDuration = Math.max(8, Math.min(25, 5 + Math.log(cp) * 3.5));
+  state.speed = Math.log(cp) / state.roundDuration;
+
+  state.bettingTimer = 5;
+
+  const tick = () => {
+    if (state.phase !== 'BETTING') return;
+    state.bettingTimer -= 0.05;
+    if (state.bettingTimer <= 3 && state.bettingTimer > 0 && Math.ceil(state.bettingTimer) !== Math.ceil(state.bettingTimer + 0.05)) {
+      audio.playBeep(660 + (3 - Math.ceil(state.bettingTimer)) * 220, 0.08);
+    }
+    if (state.bettingTimer <= 0) {
+      startCountdown();
+      return;
+    }
+    updateUI();
+    setTimeout(tick, 50);
+  };
+  tick();
+  updateUI();
+}
+
+function startCountdown() {
+  state.phase = 'COUNTDOWN';
+  state.countdownLeft = 3;
+  audio.playBeep(1100, 0.15);
+
+  const tick = () => {
+    if (state.phase !== 'COUNTDOWN') return;
+    state.countdownLeft -= 0.05;
+    if (state.countdownLeft > 0 && Math.ceil(state.countdownLeft) !== Math.ceil(state.countdownLeft + 0.05)) {
+      audio.playBeep(1100, 0.15);
+    }
+    if (state.countdownLeft <= 0) {
+      audio.playBeep(1760, 0.2);
+      startFalling();
+      return;
+    }
+    updateUI();
+    setTimeout(tick, 50);
+  };
+  tick();
+  updateUI();
+}
+
+function startFalling() {
+  state.phase = 'FALLING';
+  state.roundStart = Date.now();
+  state.currentMultiplier = 1.00;
+
+  audio.startWind();
+  audio.startHeartbeat();
+
+  // schedule wind event
+  if (state.crashPoint > 2) {
+    const eventRoll = Math.random();
+    if (eventRoll < 0.25) scheduleWindEvent('updraft');
+    else if (eventRoll < 0.45) scheduleWindEvent('downdraft');
+    else if (eventRoll < 0.6) scheduleWindEvent('turbulence');
+  }
+
+  const tick = () => {
+    if (state.phase !== 'FALLING') return;
+    const elapsed = (Date.now() - state.roundStart) / 1000;
+    state.currentMultiplier = Math.min(state.crashPoint, Math.exp(state.speed * elapsed));
+    state.currentMultiplier = Math.floor(state.currentMultiplier * 100) / 100;
+
+    audio.updateWind(state.currentMultiplier);
+    audio.updateHeartbeat(state.currentMultiplier);
+
+    // bot cashouts
+    state.bots.forEach(bot => {
+      if (!bot.cashedOut && state.currentMultiplier >= bot.cashoutTarget) {
+        bot.cashedOut = true;
+        bot.mult = state.currentMultiplier;
+        bot.cashoutTime = Date.now() / 1000;
+      }
+    });
+
+    // auto cashout
+    if (state.betPlaced && state.autoCashoutOn && state.currentMultiplier >= state.autoCashoutTarget) {
+      doCashout();
+      return;
+    }
+
+    // wind event timing
+    if (state.windEventTimer > 0) {
+      state.windEventTimer -= 0.016;
+      if (state.windEventTimer <= 0) state.windEvent = null;
+    }
+
+    // crash check
+    if (state.currentMultiplier >= state.crashPoint) {
+      doCrash();
+      return;
+    }
+
+    updateUI();
+    setTimeout(tick, 16);
+  };
+  tick();
+  updateUI();
+}
+
+function scheduleWindEvent(type) {
+  const minDelay = type === 'downdraft' ? 2 : 3;
+  const maxTime = state.roundDuration - 2;
+  if (maxTime < minDelay + 1) return;
+  const delay = minDelay + Math.random() * (maxTime - minDelay - 1);
+
+  setTimeout(() => {
+    if (state.phase !== 'FALLING') return;
+    state.windEvent = type;
+    state.windEventTimer = type === 'updraft' ? 3 : 2 + Math.random();
+    audio.playWindEvent(type);
+    if (type === 'turbulence') {
+      spawnParticles(W / 2, H / 2, 'rgba(255,200,0,0.5)', 15);
+    }
+  }, delay * 1000);
+}
+
+function doCashout() {
+  if (state.phase !== 'FALLING' || !state.betPlaced) return;
+  state.phase = 'CASHED_OUT';
+  state.cashoutMultiplier = state.currentMultiplier;
+  state.winAmount = state.bet * state.cashoutMultiplier;
+  state.cashoutTime = Date.now();
+
+  // side bet check
+  let sideBetWin = 0;
+  if (state.sideBetOn) {
+    if (state.crashPoint >= state.sideBetTarget) {
+      sideBetWin = state.bet * 3;
+    }
+    // side bet costs same as main bet
+  }
+
+  state.balance += state.winAmount + sideBetWin;
+
+  audio.stopWind();
+  audio.stopHeartbeat();
+  audio.playCashout();
+
+  spawnParticles(W / 2, H * 0.4, '#00ff88', 25);
+
+  updateUI();
+
+  setTimeout(() => {
+    state.history.push({ cp: state.crashPoint, won: true, mult: state.cashoutMultiplier });
+    updateHistory();
+    revealFairness();
+    setTimeout(startBettingPhase, 2000);
+  }, 1500);
+}
+
+function doCrash() {
+  state.phase = 'CRASHED';
+  state.crashTime = Date.now();
+  state.currentMultiplier = state.crashPoint;
+
+  audio.stopWind();
+  audio.stopHeartbeat();
+  audio.playCrash();
+
+  spawnParticles(W / 2, H * 0.4, '#ff3355', 30);
+
+  // mark remaining bots as lost
+  state.bots.forEach(bot => {
+    if (!bot.cashedOut) { bot.cashedOut = false; }
+  });
+
+  updateUI();
+
+  setTimeout(() => {
+    state.history.push({ cp: state.crashPoint, won: false });
+    updateHistory();
+    revealFairness();
+    setTimeout(startBettingPhase, 2000);
+  }, 1500);
+}
+
+function revealFairness() {
+  $('pfSeed').textContent = state.seed;
+  $('pfCrash').textContent = state.crashPoint.toFixed(2) + 'x';
+}
+
+// ========== USER ACTIONS ==========
+function placeBet() {
+  if (state.phase !== 'BETTING' || state.betPlaced) return;
+  const betAmt = parseFloat($('betInput').value) || 10;
+  const totalBet = state.sideBetOn ? betAmt * 2 : betAmt;
+  if (totalBet > state.balance) return;
+
+  audio.init();
+  audio.playBeep(880, 0.08);
+
+  state.bet = betAmt;
+  state.balance -= totalBet;
+  state.betPlaced = true;
+  state.autoCashoutOn = $('autoCashoutToggle').classList.contains('on');
+  state.autoCashoutTarget = parseFloat($('autoCashoutInput').value) || 2.0;
+  state.sideBetOn = $('sideBetToggle').classList.contains('on');
+  state.sideBetTarget = parseFloat($('sideBetTarget').value) || 3.0;
+
+  updateUI();
+}
+
+function handleAction() {
+  if (state.phase === 'BETTING' && !state.betPlaced) {
+    placeBet();
+  } else if (state.phase === 'FALLING' && state.betPlaced) {
+    doCashout();
+  }
+}
+
+// ========== EVENT LISTENERS ==========
+$('actionBtn').addEventListener('click', handleAction);
+
+$('betMinus').addEventListener('click', () => {
+  const inp = $('betInput');
+  inp.value = Math.max(1, (parseFloat(inp.value) || 10) - 1);
+});
+$('betPlus').addEventListener('click', () => {
+  const inp = $('betInput');
+  inp.value = Math.min(500, (parseFloat(inp.value) || 10) + 1);
+});
+
+document.querySelectorAll('.preset-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    $('betInput').value = btn.dataset.amt;
+  });
+});
+
+$('soundToggle').addEventListener('click', () => {
+  audio.init();
+  const on = audio.toggle();
+  $('soundToggle').textContent = on ? '🔊' : '🔇';
+  $('soundToggle').classList.toggle('active', on);
+});
+
+$('fairToggle').addEventListener('click', () => {
+  $('pfSection').classList.toggle('open');
+});
+
+$('autoCashoutToggle').addEventListener('click', () => {
+  $('autoCashoutToggle').classList.toggle('on');
+});
+
+$('sideBetToggle').addEventListener('click', () => {
+  $('sideBetToggle').classList.toggle('on');
+});
+
+// keyboard shortcut — space to bet/cashout
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space') { e.preventDefault(); handleAction(); }
+});
+
+// ========== START ==========
+requestAnimationFrame(render);
+startBettingPhase();
+</script>
+</body>
+</html>
