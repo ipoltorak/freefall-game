@@ -34,9 +34,9 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 /* GAME CANVAS */
 .game-area{flex:1;position:relative;overflow:hidden;min-height:0}
 #gameCanvas{width:100%;height:100%;display:block}
-.multiplier-overlay{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-family:'Orbitron',sans-serif;font-weight:900;text-align:center;pointer-events:none;z-index:5;text-shadow:0 0 40px rgba(0,220,255,0.5)}
-.multiplier-text{font-size:64px;line-height:1;transition:color .3s}
-.multiplier-label{font-size:12px;color:var(--text-dim);letter-spacing:3px;margin-top:4px}
+.multiplier-overlay{position:absolute;top:15%;left:50%;transform:translate(-50%,-50%);font-family:'Orbitron',sans-serif;font-weight:900;text-align:center;pointer-events:none;z-index:5;text-shadow:0 0 30px rgba(0,220,255,0.4)}
+.multiplier-text{font-size:52px;line-height:1;transition:color .3s}
+.multiplier-label{font-size:10px;color:var(--text-dim);letter-spacing:3px;margin-top:2px}
 .phase-text{position:absolute;top:15%;left:50%;transform:translateX(-50%);font-family:'Orbitron',sans-serif;font-size:28px;font-weight:900;text-align:center;pointer-events:none;z-index:5}
 .countdown-text{color:var(--cyan);animation:pulse 1s ease infinite}
 .crashed-text{color:var(--red);animation:crashShake .3s ease}
@@ -259,7 +259,6 @@ class AudioEngine {
       osc.connect(g); g.connect(this.masterGain);
       osc.start(now + i * 0.08); osc.stop(now + i * 0.08 + 0.35);
     });
-    // woosh
     const buf = this.ctx.createBuffer(1, this.ctx.sampleRate, this.ctx.sampleRate);
     const d = buf.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
@@ -326,18 +325,20 @@ function cappedCrashPoint() {
 }
 
 // ========== BOTS ==========
+const BOT_COLORS = ['#ff6688','#66ccff','#ffaa44','#88ff66','#cc88ff','#ff88cc','#88ffcc','#ffcc88','#aa88ff','#88aaff'];
 function createBots() {
   const names = ['SkyCat','DiveKing','FreeFly','CloudNine','AirWolf','WindRider','FalconX','JetSet','StormDive','AceHigh'];
-  return names.slice(0, 5 + Math.floor(Math.random() * 6)).map(name => ({
+  return names.slice(0, 5 + Math.floor(Math.random() * 6)).map((name, i) => ({
     name, bet: Math.floor(Math.random() * 50 + 1),
     cashoutTarget: Math.random() < 0.6 ? 1.2 + Math.random() * 1.5 : (Math.random() < 0.7 ? 2.5 + Math.random() * 5 : 8 + Math.random() * 20),
-    cashedOut: false, mult: null
+    cashedOut: false, mult: null, color: BOT_COLORS[i % BOT_COLORS.length],
+    canopyDeploy: 0
   }));
 }
 
 // ========== GAME STATE ==========
 const state = {
-  phase: 'BETTING', // BETTING, COUNTDOWN, FALLING, CRASHED, CASHED_OUT
+  phase: 'BETTING',
   balance: 1000,
   bet: 10,
   betPlaced: false,
@@ -357,8 +358,11 @@ const state = {
   seed: '',
   hash: '',
   particles: [],
+  windParticles: [],
   clouds: [],
   stars: [],
+  nebulae: [],
+  fogLayers: [],
   shakeX: 0, shakeY: 0,
   windEvent: null,
   windEventTimer: 0,
@@ -367,6 +371,9 @@ const state = {
   parachuteOpen: false,
   cashoutMultiplier: 0,
   winAmount: 0,
+  canopyDeploy: 0,
+  crashTumble: 0,
+  sunAngle: 0,
 };
 
 // ========== DOM REFS ==========
@@ -384,37 +391,101 @@ function resizeCanvas() {
   canvas.width = W * dpr; canvas.height = H * dpr;
   canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  initEnvironment();
 }
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
 
-// ========== INIT CLOUDS & STARS ==========
-function initClouds() {
+// ========== INIT ENVIRONMENT ==========
+function initEnvironment() {
   state.clouds = [];
-  for (let i = 0; i < 15; i++) {
-    state.clouds.push({
-      x: Math.random() * W, y: Math.random() * H,
-      w: 60 + Math.random() * 100, h: 20 + Math.random() * 40,
-      speed: 0.3 + Math.random() * 0.5, opacity: 0.2 + Math.random() * 0.4,
-      layer: Math.floor(Math.random() * 3)
-    });
+  // 3 layers of clouds with different sizes/speeds for parallax
+  for (let layer = 0; layer < 3; layer++) {
+    const count = layer === 0 ? 4 : (layer === 1 ? 6 : 8);
+    for (let i = 0; i < count; i++) {
+      state.clouds.push({
+        x: Math.random() * W * 1.4 - W * 0.2,
+        y: Math.random() * H,
+        w: (80 + Math.random() * 120) * (1 - layer * 0.2),
+        h: (25 + Math.random() * 40) * (1 - layer * 0.15),
+        speed: (0.2 + Math.random() * 0.3) * (layer + 1),
+        opacity: (0.5 - layer * 0.12) + Math.random() * 0.15,
+        layer: layer,
+        puffs: generateCloudPuffs()
+      });
+    }
   }
+
   state.stars = [];
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 200; i++) {
     state.stars.push({
       x: Math.random() * W, y: Math.random() * H,
-      size: 0.5 + Math.random() * 2, twinkle: Math.random() * Math.PI * 2
+      size: 0.3 + Math.random() * 2.5,
+      twinkle: Math.random() * Math.PI * 2,
+      twinkleSpeed: 0.5 + Math.random() * 3,
+      hue: Math.random() < 0.1 ? (200 + Math.random() * 60) : 0,
+      brightness: 0.5 + Math.random() * 0.5
+    });
+  }
+
+  state.nebulae = [];
+  for (let i = 0; i < 5; i++) {
+    state.nebulae.push({
+      x: Math.random() * W, y: Math.random() * H * 0.6,
+      r: 40 + Math.random() * 80,
+      hue: Math.random() * 360,
+      alpha: 0.03 + Math.random() * 0.04
+    });
+  }
+
+  state.fogLayers = [];
+  for (let i = 0; i < 4; i++) {
+    state.fogLayers.push({
+      y: H * (0.2 + i * 0.2),
+      thickness: 20 + Math.random() * 30,
+      opacity: 0.05 + Math.random() * 0.08,
+      speed: 0.1 + Math.random() * 0.15,
+      offset: Math.random() * 100
+    });
+  }
+
+  // init wind particles
+  state.windParticles = [];
+  for (let i = 0; i < 60; i++) {
+    state.windParticles.push({
+      x: Math.random() * W,
+      y: Math.random() * H,
+      speed: 1 + Math.random() * 3,
+      size: 0.5 + Math.random() * 1.5,
+      opacity: 0.2 + Math.random() * 0.4
     });
   }
 }
-initClouds();
+
+function generateCloudPuffs() {
+  const puffs = [];
+  const count = 4 + Math.floor(Math.random() * 5);
+  for (let i = 0; i < count; i++) {
+    puffs.push({
+      ox: (Math.random() - 0.5) * 0.8,
+      oy: (Math.random() - 0.5) * 0.5,
+      rx: 0.2 + Math.random() * 0.35,
+      ry: 0.25 + Math.random() * 0.35
+    });
+  }
+  return puffs;
+}
 
 // ========== PARTICLE SYSTEM ==========
-function spawnParticles(x, y, color, count = 10) {
+function spawnParticles(x, y, color, count = 10, opts = {}) {
   for (let i = 0; i < count; i++) {
     state.particles.push({
-      x, y, vx: (Math.random() - 0.5) * 4, vy: (Math.random() - 0.5) * 4 - 2,
-      life: 1, decay: 0.01 + Math.random() * 0.02, color, size: 2 + Math.random() * 3
+      x, y,
+      vx: (opts.vx || 0) + (Math.random() - 0.5) * (opts.spread || 4),
+      vy: (opts.vy || 0) + (Math.random() - 0.5) * (opts.spread || 4) - (opts.upward ? 3 : 0),
+      life: 1, decay: 0.01 + Math.random() * (opts.decay || 0.02),
+      color, size: (opts.size || 2) + Math.random() * (opts.sizeVar || 3),
+      type: opts.type || 'circle'
     });
   }
 }
@@ -430,39 +501,134 @@ function getMultiplierColor(m) {
 
 function getSkyGradient(m) {
   const g = ctx.createLinearGradient(0, 0, 0, H);
-  if (m < 2) {
-    g.addColorStop(0, '#1a3a6a'); g.addColorStop(0.5, '#2a5a9a'); g.addColorStop(1, '#4a8ad0');
+  if (m < 1.5) {
+    // low altitude - bright blue sky
+    g.addColorStop(0, '#1a4a8a'); g.addColorStop(0.4, '#2a6ab0'); g.addColorStop(0.8, '#5a9ad8'); g.addColorStop(1, '#7ab8e8');
+  } else if (m < 3) {
+    g.addColorStop(0, '#12306a'); g.addColorStop(0.4, '#1a4a90'); g.addColorStop(0.8, '#3a70b0'); g.addColorStop(1, '#5090c8');
   } else if (m < 5) {
-    g.addColorStop(0, '#0e1f4a'); g.addColorStop(0.5, '#1a3570'); g.addColorStop(1, '#2a5090');
+    g.addColorStop(0, '#0e1f4a'); g.addColorStop(0.4, '#1a3570'); g.addColorStop(0.8, '#2a5090'); g.addColorStop(1, '#3a70a8');
   } else if (m < 10) {
-    g.addColorStop(0, '#08102a'); g.addColorStop(0.5, '#101840'); g.addColorStop(1, '#1a2860');
+    g.addColorStop(0, '#06102a'); g.addColorStop(0.3, '#0c1838'); g.addColorStop(0.7, '#152850'); g.addColorStop(1, '#1e3868');
+  } else if (m < 20) {
+    g.addColorStop(0, '#020818'); g.addColorStop(0.3, '#060e25'); g.addColorStop(0.7, '#0c1838'); g.addColorStop(1, '#142548');
   } else {
-    g.addColorStop(0, '#020510'); g.addColorStop(0.3, '#050a1a'); g.addColorStop(1, '#0a1030');
+    g.addColorStop(0, '#010410'); g.addColorStop(0.3, '#030815'); g.addColorStop(0.7, '#060e22'); g.addColorStop(1, '#0a1530');
   }
   return g;
 }
 
-function drawStars(m, t) {
-  if (m < 5) return;
-  const alpha = Math.min(1, (m - 5) / 10);
-  state.stars.forEach(s => {
-    const tw = Math.sin(s.twinkle + t * 2) * 0.3 + 0.7;
-    ctx.globalAlpha = alpha * tw;
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath(); ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2); ctx.fill();
+// ========== SUN / LENS FLARE ==========
+function drawSun(m, t) {
+  if (m > 8) return; // sun below horizon at high altitude
+  const sunX = W * 0.82;
+  const sunY = H * 0.12 + Math.min(m * 5, 40);
+  const sunAlpha = m > 6 ? Math.max(0, 1 - (m - 6) / 2) : 1;
+
+  ctx.save();
+  ctx.globalAlpha = sunAlpha;
+
+  // sun glow (large)
+  const glow = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, 80);
+  glow.addColorStop(0, 'rgba(255,240,200,0.5)');
+  glow.addColorStop(0.3, 'rgba(255,200,100,0.15)');
+  glow.addColorStop(0.7, 'rgba(255,180,80,0.03)');
+  glow.addColorStop(1, 'rgba(255,150,50,0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(sunX - 80, sunY - 80, 160, 160);
+
+  // sun core
+  const core = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, 16);
+  core.addColorStop(0, 'rgba(255,255,240,1)');
+  core.addColorStop(0.5, 'rgba(255,230,180,0.9)');
+  core.addColorStop(1, 'rgba(255,200,120,0)');
+  ctx.fillStyle = core;
+  ctx.beginPath(); ctx.arc(sunX, sunY, 16, 0, Math.PI * 2); ctx.fill();
+
+  // lens flare dots along a line from sun toward center
+  const flareAlpha = 0.12 * sunAlpha;
+  const dx = W * 0.5 - sunX, dy = H * 0.5 - sunY;
+  [0.25, 0.45, 0.6, 0.8].forEach((frac, i) => {
+    const fx = sunX + dx * frac;
+    const fy = sunY + dy * frac;
+    const fr = [6, 10, 4, 8][i];
+    const fHue = [200, 120, 300, 60][i];
+    ctx.globalAlpha = flareAlpha * (0.5 + 0.5 * Math.sin(t * 1.5 + i));
+    const fg = ctx.createRadialGradient(fx, fy, 0, fx, fy, fr);
+    fg.addColorStop(0, `hsla(${fHue},80%,70%,0.5)`);
+    fg.addColorStop(1, `hsla(${fHue},80%,70%,0)`);
+    ctx.fillStyle = fg;
+    ctx.beginPath(); ctx.arc(fx, fy, fr, 0, Math.PI * 2); ctx.fill();
   });
-  ctx.globalAlpha = 1;
-  // aurora at 10x+
-  if (m >= 10) {
-    const aAlpha = Math.min(0.15, (m - 10) / 50);
-    const ag = ctx.createLinearGradient(0, H * 0.6, 0, H);
-    ag.addColorStop(0, `rgba(0, 255, 136, ${aAlpha})`);
-    ag.addColorStop(0.5, `rgba(0, 220, 255, ${aAlpha * 0.5})`);
-    ag.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = ag; ctx.fillRect(0, H * 0.5, W, H * 0.5);
-  }
+
+  ctx.restore();
 }
 
+// ========== STARS, NEBULAE, AURORA ==========
+function drawStars(m, t) {
+  if (m < 4) return;
+  const alpha = Math.min(1, (m - 4) / 8);
+  state.stars.forEach(s => {
+    const tw = Math.sin(s.twinkle + t * s.twinkleSpeed) * 0.35 + 0.65;
+    ctx.globalAlpha = alpha * tw * s.brightness;
+    if (s.hue > 0) {
+      ctx.fillStyle = `hsl(${s.hue}, 60%, 80%)`;
+    } else {
+      ctx.fillStyle = '#ffffff';
+    }
+    ctx.beginPath(); ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2); ctx.fill();
+    // brighter stars get a cross spike
+    if (s.size > 1.8) {
+      ctx.globalAlpha = alpha * tw * 0.3;
+      ctx.strokeStyle = ctx.fillStyle;
+      ctx.lineWidth = 0.5;
+      ctx.beginPath(); ctx.moveTo(s.x - s.size * 2, s.y); ctx.lineTo(s.x + s.size * 2, s.y); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(s.x, s.y - s.size * 2); ctx.lineTo(s.x, s.y + s.size * 2); ctx.stroke();
+    }
+  });
+  ctx.globalAlpha = 1;
+
+  // nebulae at high altitude
+  if (m >= 8) {
+    const nAlpha = Math.min(1, (m - 8) / 15);
+    state.nebulae.forEach(n => {
+      ctx.globalAlpha = n.alpha * nAlpha;
+      const ng = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, n.r);
+      ng.addColorStop(0, `hsla(${n.hue}, 70%, 50%, 0.3)`);
+      ng.addColorStop(0.5, `hsla(${(n.hue + 30) % 360}, 60%, 40%, 0.1)`);
+      ng.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = ng;
+      ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2); ctx.fill();
+    });
+  }
+
+  // aurora at 10x+
+  if (m >= 10) {
+    const aAlpha = Math.min(0.2, (m - 10) / 40);
+    ctx.globalAlpha = aAlpha;
+    // wavy aurora bands
+    for (let band = 0; band < 3; band++) {
+      ctx.beginPath();
+      const baseY = H * (0.6 + band * 0.08);
+      ctx.moveTo(0, baseY);
+      for (let x = 0; x <= W; x += 5) {
+        const wave = Math.sin(x * 0.01 + t * 0.5 + band * 2) * 20 + Math.sin(x * 0.025 + t * 0.8) * 10;
+        ctx.lineTo(x, baseY + wave);
+      }
+      ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath();
+      const ag = ctx.createLinearGradient(0, baseY - 30, 0, baseY + 60);
+      const hue = [140, 180, 280][band];
+      ag.addColorStop(0, `hsla(${hue}, 80%, 60%, 0.4)`);
+      ag.addColorStop(0.5, `hsla(${hue + 20}, 70%, 50%, 0.15)`);
+      ag.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = ag;
+      ctx.fill();
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ========== VOLUMETRIC CLOUDS ==========
 function drawClouds(m, t) {
   if (m > 12) return;
   const alpha = m > 8 ? Math.max(0, 1 - (m - 8) / 4) : 1;
@@ -470,155 +636,494 @@ function drawClouds(m, t) {
   let windMod = 1;
   if (state.windEvent === 'updraft') windMod = 0.3;
   else if (state.windEvent === 'downdraft') windMod = 2.5;
-  state.clouds.forEach(c => {
-    c.y += c.speed * scrollSpeed * windMod;
-    if (c.y > H + 50) { c.y = -50; c.x = Math.random() * W; }
-    ctx.globalAlpha = c.opacity * alpha;
+
+  // draw by layer for proper parallax
+  for (let layer = 2; layer >= 0; layer--) {
+    const layerSpeed = (layer + 1) * 0.5;
+    state.clouds.filter(c => c.layer === layer).forEach(c => {
+      c.y += c.speed * scrollSpeed * windMod * layerSpeed;
+      if (c.y > H + 80) { c.y = -80; c.x = Math.random() * W * 1.2 - W * 0.1; }
+
+      ctx.globalAlpha = c.opacity * alpha * (layer === 0 ? 1 : layer === 1 ? 0.7 : 0.45);
+
+      // draw volumetric cloud with multiple puffs
+      const cx = c.x, cy = c.y, cw = c.w, ch = c.h;
+
+      // shadow layer (offset down and slightly transparent)
+      ctx.fillStyle = 'rgba(80,100,140,0.25)';
+      c.puffs.forEach(p => {
+        ctx.beginPath();
+        ctx.ellipse(cx + p.ox * cw + 3, cy + p.oy * ch + 4, p.rx * cw, p.ry * ch, 0, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // main cloud body
+      ctx.fillStyle = `rgba(220,230,245,${0.6 + layer * 0.1})`;
+      c.puffs.forEach(p => {
+        ctx.beginPath();
+        ctx.ellipse(cx + p.ox * cw, cy + p.oy * ch, p.rx * cw, p.ry * ch, 0, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // highlight on top
+      ctx.fillStyle = `rgba(255,255,255,${0.3 + layer * 0.05})`;
+      c.puffs.forEach(p => {
+        ctx.beginPath();
+        ctx.ellipse(cx + p.ox * cw - 2, cy + p.oy * ch - ch * 0.12, p.rx * cw * 0.7, p.ry * ch * 0.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    });
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ========== FOG LAYERS ==========
+function drawFog(m, t) {
+  if (m > 8) return;
+  const fogAlpha = m > 5 ? Math.max(0, 1 - (m - 5) / 3) : 1;
+  state.fogLayers.forEach(f => {
+    const wave = Math.sin(t * f.speed + f.offset) * 15;
+    ctx.globalAlpha = f.opacity * fogAlpha;
+    const fg = ctx.createLinearGradient(0, f.y + wave - f.thickness, 0, f.y + wave + f.thickness);
+    fg.addColorStop(0, 'rgba(180,200,230,0)');
+    fg.addColorStop(0.5, 'rgba(180,200,230,1)');
+    fg.addColorStop(1, 'rgba(180,200,230,0)');
+    ctx.fillStyle = fg;
+    ctx.fillRect(0, f.y + wave - f.thickness, W, f.thickness * 2);
+  });
+  ctx.globalAlpha = 1;
+}
+
+// ========== EARTH CURVATURE / TERRAIN ==========
+function drawEarthCurvature(m, t) {
+  if (m < 3) {
+    // low altitude: ground terrain visible
+    const terrainAlpha = Math.max(0, 1 - (m - 1) / 2);
+    if (terrainAlpha <= 0) return;
+    ctx.save();
+    ctx.globalAlpha = terrainAlpha * 0.4;
+    // patchwork terrain at bottom
+    const groundY = H - 30 + (m - 1) * 10;
+    const grd = ctx.createLinearGradient(0, groundY - 40, 0, H);
+    grd.addColorStop(0, 'rgba(40,80,40,0)');
+    grd.addColorStop(0.3, 'rgba(50,100,50,0.3)');
+    grd.addColorStop(0.6, 'rgba(60,90,40,0.5)');
+    grd.addColorStop(1, 'rgba(80,120,60,0.6)');
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, groundY - 40, W, H - groundY + 40);
+    // field lines
+    ctx.strokeStyle = 'rgba(70,110,50,0.3)';
+    ctx.lineWidth = 0.5;
+    for (let i = 0; i < 8; i++) {
+      const fx = (i * W / 7 + t * 10) % (W + 40) - 20;
+      ctx.beginPath(); ctx.moveTo(fx, groundY); ctx.lineTo(fx + 15, H); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // earth curvature at 5x+
+  if (m >= 5) {
+    const cAlpha = Math.min(0.6, (m - 5) / 8);
+    ctx.save();
+    ctx.globalAlpha = cAlpha;
+
+    // atmospheric glow
+    const glowY = H - 40;
+    const aGlow = ctx.createLinearGradient(0, glowY - 30, 0, glowY + 20);
+    aGlow.addColorStop(0, 'rgba(100,180,255,0)');
+    aGlow.addColorStop(0.5, 'rgba(120,190,255,0.4)');
+    aGlow.addColorStop(1, 'rgba(80,150,230,0.2)');
+    ctx.fillStyle = aGlow;
+    ctx.beginPath();
+    ctx.ellipse(W / 2, H + 180, W * 1.6, 260, 0, Math.PI, 0);
+    ctx.fill();
+
+    // earth surface
+    const eg = ctx.createLinearGradient(0, H - 50, 0, H);
+    eg.addColorStop(0, 'rgba(40,100,60,0)');
+    eg.addColorStop(0.3, 'rgba(50,120,80,0.3)');
+    eg.addColorStop(0.7, 'rgba(40,90,60,0.5)');
+    eg.addColorStop(1, 'rgba(30,70,50,0.6)');
+    ctx.fillStyle = eg;
+    ctx.beginPath();
+    ctx.ellipse(W / 2, H + 200, W * 1.5, 270, 0, Math.PI, 0);
+    ctx.fill();
+
+    // horizon glow line
+    ctx.globalAlpha = cAlpha * 0.6;
+    ctx.strokeStyle = 'rgba(140,200,255,0.8)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.ellipse(W / 2, H + 200, W * 1.5, 270, 0, Math.PI + 0.1, -0.1);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+}
+
+// ========== WIND PARTICLES ==========
+function drawWindParticles(m, t) {
+  if (state.phase !== 'FALLING') return;
+  const intensity = Math.min(1, (m - 1) / 3);
+  if (intensity <= 0) return;
+
+  let speedMul = 1;
+  if (state.windEvent === 'downdraft') speedMul = 3;
+  else if (state.windEvent === 'updraft') speedMul = 0.3;
+
+  state.windParticles.forEach(wp => {
+    wp.y -= wp.speed * (1 + m * 0.5) * speedMul; // going up = falling effect
+    if (wp.y < -10) { wp.y = H + 10; wp.x = Math.random() * W; }
+    if (wp.y > H + 10) { wp.y = -10; wp.x = Math.random() * W; }
+
+    ctx.globalAlpha = wp.opacity * intensity;
     ctx.fillStyle = '#ffffff';
-    // fluffy cloud shape
-    const cx = c.x, cy = c.y, cw = c.w, ch = c.h;
+    // streak shape
     ctx.beginPath();
-    ctx.ellipse(cx, cy, cw / 2, ch / 2, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.ellipse(cx - cw * 0.25, cy - ch * 0.15, cw * 0.3, ch * 0.35, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.ellipse(cx + cw * 0.2, cy - ch * 0.1, cw * 0.25, ch * 0.3, 0, 0, Math.PI * 2);
+    ctx.ellipse(wp.x, wp.y, wp.size * 0.3, wp.size * (1 + m * 0.3), 0, 0, Math.PI * 2);
     ctx.fill();
   });
   ctx.globalAlpha = 1;
-  // earth curvature at 5x+
-  if (m >= 5) {
-    const cAlpha = Math.min(0.5, (m - 5) / 10);
-    ctx.globalAlpha = cAlpha;
-    const eg = ctx.createLinearGradient(0, H - 60, 0, H);
-    eg.addColorStop(0, 'rgba(100,180,255,0)');
-    eg.addColorStop(0.4, 'rgba(80,160,230,0.3)');
-    eg.addColorStop(1, 'rgba(60,140,200,0.6)');
-    ctx.fillStyle = eg;
-    ctx.beginPath();
-    ctx.ellipse(W / 2, H + 200, W * 1.5, 280, 0, Math.PI, 0);
-    ctx.fill();
-    ctx.globalAlpha = 1;
+}
+
+// ========== WIND EVENT PARTICLES ==========
+function drawWindEventParticles(m, t) {
+  if (!state.windEvent) return;
+
+  if (state.windEvent === 'updraft') {
+    // leaves/debris going up
+    for (let i = 0; i < 6; i++) {
+      const px = (W * 0.2 + i * W * 0.12 + Math.sin(t * 2 + i * 3) * 30) % W;
+      const py = (H - (t * 80 + i * 60) % H) % H;
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.rotate(t * 3 + i);
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = ['#4a8030','#6a9940','#8ab050'][i % 3];
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 3, 6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  } else if (state.windEvent === 'downdraft') {
+    // rain streaks
+    ctx.strokeStyle = 'rgba(150,180,220,0.35)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 20; i++) {
+      const rx = (i * 27 + t * 40) % W;
+      const ry = (t * 300 + i * 37) % H;
+      ctx.beginPath();
+      ctx.moveTo(rx, ry);
+      ctx.lineTo(rx - 2, ry + 15 + Math.random() * 10);
+      ctx.stroke();
+    }
   }
 }
 
+// ========== SPEED LINES ==========
 function drawSpeedLines(m, t) {
-  if (m < 1.5 && state.windEvent !== 'downdraft') return;
-  let intensity = Math.min(20, (m - 1) * 3);
+  if (m < 1.3 && state.windEvent !== 'downdraft') return;
+  let intensity = Math.min(30, (m - 1) * 4);
   if (state.windEvent === 'downdraft') intensity *= 2;
-  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-  ctx.lineWidth = 1;
+
   for (let i = 0; i < intensity; i++) {
     const x = Math.random() * W;
     const y = (t * 500 * (1 + Math.random()) + i * 100) % (H + 100) - 50;
-    const len = 20 + Math.random() * 40 + m * 3;
-    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + (Math.random() - 0.5) * 3, y + len); ctx.stroke();
+    const len = 25 + Math.random() * 50 + m * 5;
+    const lineAlpha = 0.05 + Math.min(0.15, m * 0.01);
+    ctx.strokeStyle = `rgba(255,255,255,${lineAlpha})`;
+    ctx.lineWidth = 0.5 + Math.random() * 1;
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + (Math.random() - 0.5) * 2, y + len); ctx.stroke();
   }
 }
 
+// ========== DETAILED SKYDIVER ==========
 function drawSkydiver(t, m) {
-  const cx = W / 2 + Math.sin(t * 2) * 8 + state.shakeX;
-  const cy = H * 0.4 + Math.sin(t * 3) * 5 + state.shakeY;
+  const wobbleX = Math.sin(t * 2) * (8 + Math.min(m, 10) * 0.5);
+  const wobbleY = Math.sin(t * 3) * 5;
+  let cx = W / 2 + wobbleX + state.shakeX;
+  let cy = H * 0.47 + wobbleY + state.shakeY;
+
+  if (state.windEvent === 'updraft') cy -= 18;
+  else if (state.windEvent === 'downdraft') cy += 12;
+
   const limbPhase = t * 4;
 
-  if (state.windEvent === 'updraft') {
-    // draw updraft effect — character shifts up
-    const uy = cy - 15;
-    drawSkydiverBody(cx, uy, limbPhase, m, t);
-  } else if (state.windEvent === 'downdraft') {
-    const dy = cy + 10;
-    drawSkydiverBody(cx, dy, limbPhase * 1.5, m, t);
-  } else {
-    drawSkydiverBody(cx, cy, limbPhase, m, t);
-  }
-}
+  // motion blur / wind distortion aura
+  drawMotionBlur(cx, cy, m, t);
 
-function drawSkydiverBody(cx, cy, limbPhase, m, t) {
   ctx.save();
   ctx.translate(cx, cy);
 
-  // suit glow based on multiplier
-  const glowColor = getMultiplierColor(m);
-  ctx.shadowColor = glowColor;
-  ctx.shadowBlur = 10 + m;
+  const scale = 1.0; // base scale for ~90px character
+  ctx.scale(scale, scale);
 
-  // body (torso)
+  const glowColor = getMultiplierColor(m);
+
+  // subtle rotation from wind
+  const tilt = Math.sin(t * 1.5) * 0.05 + (state.windEvent === 'updraft' ? -0.08 : state.windEvent === 'downdraft' ? 0.08 : 0);
+  ctx.rotate(tilt);
+
+  // ---- HARNESS CONTAINER (backpack) on back ----
+  ctx.fillStyle = '#2a2a3a';
+  ctx.strokeStyle = '#444';
+  ctx.lineWidth = 1;
+  roundRect(-10, -16, 20, 14, 3);
+  ctx.fill(); ctx.stroke();
+  // container details
+  ctx.fillStyle = '#383848';
+  roundRect(-8, -14, 16, 4, 2);
+  ctx.fill();
+  ctx.fillStyle = glowColor;
+  ctx.globalAlpha = 0.4;
+  roundRect(-6, -8, 12, 3, 1);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // ---- SUIT / TORSO ----
+  // suit body with flapping edges
+  const flapL = Math.sin(limbPhase * 1.2) * 2;
+  const flapR = Math.sin(limbPhase * 1.2 + 1) * 2;
+
   ctx.fillStyle = '#1a1a3a';
   ctx.beginPath();
-  ctx.ellipse(0, 0, 12, 18, 0, 0, Math.PI * 2);
+  ctx.moveTo(-14 + flapL, -20);
+  ctx.quadraticCurveTo(-18 + flapL, 0, -14 + flapL, 20);
+  ctx.lineTo(14 + flapR, 20);
+  ctx.quadraticCurveTo(18 + flapR, 0, 14 + flapR, -20);
+  ctx.closePath();
   ctx.fill();
 
-  // helmet
-  ctx.fillStyle = glowColor;
+  // suit chest details
+  ctx.strokeStyle = '#333';
+  ctx.lineWidth = 0.8;
+  ctx.beginPath(); ctx.moveTo(0, -18); ctx.lineTo(0, 16); ctx.stroke(); // center zipper
+  ctx.strokeStyle = glowColor;
+  ctx.lineWidth = 1.2;
+  ctx.globalAlpha = 0.6;
+  // racing stripes
+  ctx.beginPath(); ctx.moveTo(-10, -18); ctx.lineTo(-10, 16); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(10, -18); ctx.lineTo(10, 16); ctx.stroke();
+  ctx.globalAlpha = 1;
+
+  // harness straps over suit
+  ctx.strokeStyle = '#555';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.moveTo(-6, -16); ctx.lineTo(-10, 18); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(6, -16); ctx.lineTo(10, 18); ctx.stroke();
+  // chest strap
+  ctx.beginPath(); ctx.moveTo(-10, 0); ctx.lineTo(10, 0); ctx.stroke();
+  // buckle
+  ctx.fillStyle = '#888';
+  ctx.fillRect(-3, -2, 6, 4);
+
+  // ---- ARMS (spread, arch position) ----
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  const armWave = Math.sin(limbPhase) * 4;
+  const armWave2 = Math.sin(limbPhase + 1) * 4;
+
+  // left arm - suit
+  ctx.lineWidth = 8;
+  ctx.strokeStyle = '#1a1a3a';
   ctx.beginPath();
-  ctx.arc(0, -22, 9, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.moveTo(-14, -8);
+  ctx.quadraticCurveTo(-28, -15 + armWave, -38 - armWave, -2 + armWave);
+  ctx.stroke();
+  // left arm stripe
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = glowColor;
+  ctx.globalAlpha = 0.5;
+  ctx.beginPath();
+  ctx.moveTo(-14, -8);
+  ctx.quadraticCurveTo(-28, -15 + armWave, -38 - armWave, -2 + armWave);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  // left glove
+  ctx.fillStyle = '#333';
+  ctx.beginPath(); ctx.arc(-38 - armWave, -2 + armWave, 4, 0, Math.PI * 2); ctx.fill();
+
+  // right arm - suit
+  ctx.lineWidth = 8;
+  ctx.strokeStyle = '#1a1a3a';
+  ctx.beginPath();
+  ctx.moveTo(14, -8);
+  ctx.quadraticCurveTo(28, -15 + armWave2, 38 + armWave2, -2 + armWave2);
+  ctx.stroke();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = glowColor;
+  ctx.globalAlpha = 0.5;
+  ctx.beginPath();
+  ctx.moveTo(14, -8);
+  ctx.quadraticCurveTo(28, -15 + armWave2, 38 + armWave2, -2 + armWave2);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#333';
+  ctx.beginPath(); ctx.arc(38 + armWave2, -2 + armWave2, 4, 0, Math.PI * 2); ctx.fill();
+
+  // ---- LEGS (spread, bent at knee) ----
+  const legWave = Math.sin(limbPhase * 0.8) * 3;
+  const legWave2 = Math.sin(limbPhase * 0.8 + 1.2) * 3;
+
+  // left leg
+  ctx.lineWidth = 8;
+  ctx.strokeStyle = '#1a1a3a';
+  ctx.beginPath();
+  ctx.moveTo(-6, 18);
+  ctx.quadraticCurveTo(-16, 28 + legWave, -22 - legWave, 42 + legWave);
+  ctx.stroke();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = glowColor;
+  ctx.globalAlpha = 0.4;
+  ctx.beginPath();
+  ctx.moveTo(-6, 18);
+  ctx.quadraticCurveTo(-16, 28 + legWave, -22 - legWave, 42 + legWave);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  // boot
+  ctx.fillStyle = '#222';
+  ctx.beginPath(); ctx.arc(-22 - legWave, 42 + legWave, 4, 0, Math.PI * 2); ctx.fill();
+
+  // right leg
+  ctx.lineWidth = 8;
+  ctx.strokeStyle = '#1a1a3a';
+  ctx.beginPath();
+  ctx.moveTo(6, 18);
+  ctx.quadraticCurveTo(16, 28 + legWave2, 22 + legWave2, 42 + legWave2);
+  ctx.stroke();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = glowColor;
+  ctx.globalAlpha = 0.4;
+  ctx.beginPath();
+  ctx.moveTo(6, 18);
+  ctx.quadraticCurveTo(16, 28 + legWave2, 22 + legWave2, 42 + legWave2);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#222';
+  ctx.beginPath(); ctx.arc(22 + legWave2, 42 + legWave2, 4, 0, Math.PI * 2); ctx.fill();
+
+  // ---- HELMET ----
+  // helmet shell
+  const hg = ctx.createRadialGradient(0, -30, 2, 0, -30, 14);
+  hg.addColorStop(0, '#ddd');
+  hg.addColorStop(0.6, '#aaa');
+  hg.addColorStop(1, '#666');
+  ctx.fillStyle = hg;
+  ctx.beginPath(); ctx.arc(0, -30, 13, 0, Math.PI * 2); ctx.fill();
+
+  // visor
   ctx.fillStyle = '#111';
   ctx.beginPath();
-  ctx.arc(0, -20, 6, 0, Math.PI);
+  ctx.ellipse(0, -27, 10, 7, 0, 0.1, Math.PI - 0.1);
   ctx.fill();
 
-  // arms (spread out, waving)
-  ctx.strokeStyle = '#1a1a3a';
-  ctx.lineWidth = 5;
-  ctx.lineCap = 'round';
-  const armAngle = Math.sin(limbPhase) * 0.3;
-  // left arm
+  // visor reflection / goggles shine
+  ctx.fillStyle = 'rgba(100,180,255,0.35)';
   ctx.beginPath();
-  ctx.moveTo(-10, -5);
-  ctx.lineTo(-28 - Math.sin(limbPhase) * 5, 5 + Math.cos(limbPhase) * 8);
-  ctx.stroke();
-  // right arm
+  ctx.ellipse(-3, -28, 5, 3, -0.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.2)';
   ctx.beginPath();
-  ctx.moveTo(10, -5);
-  ctx.lineTo(28 + Math.sin(limbPhase + 1) * 5, 5 + Math.cos(limbPhase + 1) * 8);
-  ctx.stroke();
+  ctx.ellipse(-4, -30, 2, 1.5, -0.3, 0, Math.PI * 2);
+  ctx.fill();
 
-  // legs (spread, kicking)
-  ctx.beginPath();
-  ctx.moveTo(-5, 15);
-  ctx.lineTo(-15 - Math.sin(limbPhase * 0.8) * 4, 35 + Math.cos(limbPhase * 0.8) * 5);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(5, 15);
-  ctx.lineTo(15 + Math.sin(limbPhase * 0.8 + 1) * 4, 35 + Math.cos(limbPhase * 0.8 + 1) * 5);
-  ctx.stroke();
-
-  // suit stripes (neon accents)
+  // helmet stripe
   ctx.strokeStyle = glowColor;
-  ctx.lineWidth = 1.5;
+  ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(-8, -8); ctx.lineTo(-8, 10);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(8, -8); ctx.lineTo(8, 10);
+  ctx.arc(0, -30, 13, -Math.PI * 0.7, -Math.PI * 0.3);
   ctx.stroke();
 
-  // parachute backpack
-  ctx.fillStyle = '#333';
-  ctx.fillRect(-6, -12, 12, 8);
-
+  // suit glow aura
+  ctx.shadowColor = glowColor;
+  ctx.shadowBlur = 15 + m * 0.5;
+  ctx.strokeStyle = glowColor;
+  ctx.globalAlpha = 0.15;
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.ellipse(0, 5, 20, 35, 0, 0, Math.PI * 2);
+  ctx.stroke();
   ctx.shadowBlur = 0;
+  ctx.globalAlpha = 1;
+
   ctx.restore();
 }
 
+function drawMotionBlur(cx, cy, m, t) {
+  if (m < 1.2) return;
+  const blurIntensity = Math.min(0.15, (m - 1) * 0.02);
+  const streakLen = Math.min(40, m * 3);
+
+  ctx.save();
+  for (let i = 0; i < 5; i++) {
+    const ox = (Math.random() - 0.5) * 20;
+    ctx.globalAlpha = blurIntensity * (1 - i / 5);
+    ctx.strokeStyle = 'rgba(150,180,220,0.3)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(cx + ox, cy - 30 - i * 3);
+    ctx.lineTo(cx + ox + (Math.random() - 0.5) * 3, cy - 30 - i * 3 - streakLen);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+// ========== BOT SKYDIVERS (detailed mini versions) ==========
 function drawBotSkydivers(t, m) {
   state.bots.forEach((bot, i) => {
     if (bot.cashedOut) return;
-    const bx = W * 0.15 + (i % 5) * (W * 0.15) + Math.sin(t * 1.5 + i * 2) * 10;
-    const by = H * 0.3 + (i % 3) * 30 + Math.sin(t * 2 + i) * 8;
-    ctx.globalAlpha = 0.5;
-    ctx.fillStyle = '#445';
-    ctx.beginPath();
-    ctx.ellipse(bx, by, 5, 8, 0, 0, Math.PI * 2);
-    ctx.fill();
-    // tiny limbs
-    ctx.strokeStyle = '#445'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+    const bx = W * 0.12 + (i % 5) * (W * 0.17) + Math.sin(t * 1.5 + i * 2) * 10;
+    const by = H * 0.28 + (i % 3) * 35 + Math.sin(t * 2 + i) * 8;
     const lp = t * 3 + i;
-    ctx.beginPath(); ctx.moveTo(bx - 4, by - 2); ctx.lineTo(bx - 10 + Math.sin(lp) * 3, by + 2); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(bx + 4, by - 2); ctx.lineTo(bx + 10 - Math.sin(lp) * 3, by + 2); ctx.stroke();
+    const sc = 0.45;
+
+    ctx.save();
+    ctx.translate(bx, by);
+    ctx.scale(sc, sc);
+    ctx.globalAlpha = 0.7;
+
+    // suit body
+    ctx.fillStyle = bot.color;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 13, 18, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // helmet
+    ctx.fillStyle = '#aaa';
+    ctx.beginPath(); ctx.arc(0, -24, 9, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#222';
+    ctx.beginPath(); ctx.ellipse(0, -22, 7, 5, 0, 0.1, Math.PI - 0.1); ctx.fill();
+
+    // arms
+    ctx.strokeStyle = bot.color;
+    ctx.lineWidth = 6;
+    ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(-11, -5); ctx.lineTo(-28 + Math.sin(lp) * 4, 2 + Math.cos(lp) * 5); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(11, -5); ctx.lineTo(28 - Math.sin(lp) * 4, 2 + Math.cos(lp + 1) * 5); ctx.stroke();
+
+    // legs
+    ctx.beginPath(); ctx.moveTo(-5, 16); ctx.lineTo(-16 + Math.sin(lp * 0.7) * 3, 34); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(5, 16); ctx.lineTo(16 - Math.sin(lp * 0.7) * 3, 34); ctx.stroke();
+
+    // backpack
+    ctx.fillStyle = '#444';
+    ctx.fillRect(-7, -14, 14, 10);
+
+    ctx.restore();
     ctx.globalAlpha = 1;
   });
 }
@@ -626,95 +1131,295 @@ function drawBotSkydivers(t, m) {
 function drawBotParachutes(t) {
   state.bots.forEach((bot, i) => {
     if (!bot.cashedOut) return;
-    const bx = W * 0.15 + (i % 5) * (W * 0.15) + Math.sin(t * 0.5 + i) * 20;
-    const by = Math.min(H + 50, H * 0.3 + (t - bot.cashoutTime) * 30);
+    const elapsed = t - bot.cashoutTime;
+    const deployProgress = Math.min(1, elapsed * 2); // 0.5s to fully deploy
+    const bx = W * 0.12 + (i % 5) * (W * 0.17) + Math.sin(t * 0.5 + i) * 20;
+    const by = Math.min(H + 50, H * 0.3 + elapsed * 25);
     const drift = Math.sin(t * 0.8 + i) * 15;
-    ctx.globalAlpha = Math.max(0, 1 - (by - H * 0.5) / H);
-    // parachute canopy
-    ctx.fillStyle = ['#ff6688', '#66ccff', '#ffaa44', '#88ff66', '#cc88ff'][i % 5];
+
+    ctx.globalAlpha = Math.max(0, 1 - (by - H * 0.6) / (H * 0.5));
+    if (ctx.globalAlpha <= 0) { ctx.globalAlpha = 1; return; }
+
+    const canopyW = 22 * deployProgress;
+    const canopyH = 14 * deployProgress;
+
+    // canopy with panels
+    ctx.fillStyle = bot.color;
     ctx.beginPath();
-    ctx.ellipse(bx + drift, by - 25, 14, 10, 0, Math.PI, 0);
+    ctx.ellipse(bx + drift, by - 30 * deployProgress, canopyW, canopyH, 0, Math.PI, 0);
     ctx.fill();
+    // panel lines
+    if (deployProgress > 0.5) {
+      ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+      ctx.lineWidth = 0.5;
+      for (let p = -2; p <= 2; p++) {
+        ctx.beginPath();
+        ctx.moveTo(bx + drift + p * (canopyW / 3), by - 30 * deployProgress - canopyH * 0.3);
+        ctx.lineTo(bx + drift + p * (canopyW / 4), by - 30 * deployProgress + canopyH * 0.3);
+        ctx.stroke();
+      }
+    }
+
     // lines
-    ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 0.5;
-    ctx.beginPath(); ctx.moveTo(bx + drift - 10, by - 18); ctx.lineTo(bx + drift, by); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(bx + drift + 10, by - 18); ctx.lineTo(bx + drift, by); ctx.stroke();
-    // body
-    ctx.fillStyle = '#556';
-    ctx.beginPath(); ctx.ellipse(bx + drift, by, 3, 5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 0.8;
+    const numLines = 4;
+    for (let l = 0; l < numLines; l++) {
+      const lx = bx + drift + (l - (numLines - 1) / 2) * (canopyW / 2);
+      ctx.beginPath();
+      ctx.moveTo(lx, by - 30 * deployProgress + canopyH * 0.3);
+      ctx.lineTo(bx + drift, by);
+      ctx.stroke();
+    }
+
+    // body (mini skydiver)
+    const sc = 0.3;
+    ctx.fillStyle = bot.color;
+    ctx.beginPath(); ctx.ellipse(bx + drift, by + 2, 5 * sc * 3, 8 * sc * 3, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#999';
+    ctx.beginPath(); ctx.arc(bx + drift, by - 6, 4, 0, Math.PI * 2); ctx.fill();
+
     ctx.globalAlpha = 1;
   });
 }
 
+// ========== PARTICLES DRAW ==========
 function drawParticles() {
   state.particles.forEach(p => {
     ctx.globalAlpha = p.life;
     ctx.fillStyle = p.color;
-    ctx.beginPath(); ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2); ctx.fill();
+    if (p.type === 'dust') {
+      ctx.beginPath();
+      ctx.ellipse(p.x, p.y, p.size * p.life * 1.5, p.size * p.life, Math.random(), 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2); ctx.fill();
+    }
   });
   ctx.globalAlpha = 1;
 }
 
-function drawCrashedScene(t) {
-  // impact flash
-  const flashAlpha = Math.max(0, 0.5 - t * 2);
+// ========== CRASHED SCENE ==========
+function drawCrashedScene(t, m) {
+  // red flash
+  const flashAlpha = Math.max(0, 0.6 - t * 3);
   if (flashAlpha > 0) {
     ctx.globalAlpha = flashAlpha;
     ctx.fillStyle = '#ff3355';
     ctx.fillRect(0, 0, W, H);
     ctx.globalAlpha = 1;
   }
+
+  // tumbling character
+  if (t < 2) {
+    const cx = W / 2 + Math.sin(t * 8) * (20 + t * 20);
+    const cy = H * 0.47 + t * 60;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(t * 12); // fast tumble
+    ctx.globalAlpha = Math.max(0, 1 - t * 0.5);
+
+    // simplified tumbling body
+    ctx.fillStyle = '#1a1a3a';
+    ctx.beginPath(); ctx.ellipse(0, 0, 12, 16, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ff3355';
+    ctx.beginPath(); ctx.arc(0, -20, 10, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#1a1a3a'; ctx.lineWidth = 5; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(-10, -5); ctx.lineTo(-25, 10); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(10, -5); ctx.lineTo(25, 10); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-5, 14); ctx.lineTo(-15, 30); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(5, 14); ctx.lineTo(15, 30); ctx.stroke();
+
+    ctx.restore();
+  }
+
+  // impact dust cloud
+  if (t > 0.3 && t < 2.5) {
+    const dustAlpha = Math.max(0, 1 - (t - 0.3) / 2);
+    const dustR = 20 + (t - 0.3) * 60;
+    ctx.globalAlpha = dustAlpha * 0.4;
+    const dg = ctx.createRadialGradient(W / 2, H * 0.7, 0, W / 2, H * 0.7, dustR);
+    dg.addColorStop(0, 'rgba(180,150,120,0.6)');
+    dg.addColorStop(0.6, 'rgba(150,130,100,0.2)');
+    dg.addColorStop(1, 'rgba(120,100,80,0)');
+    ctx.fillStyle = dg;
+    ctx.beginPath(); ctx.arc(W / 2, H * 0.7, dustR, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
 }
 
+// ========== PLAYER PARACHUTE (deploy animation) ==========
 function drawPlayerParachute(t, m) {
   const cx = W / 2 + Math.sin(t * 0.8) * 20;
-  const cy = H * 0.45 + Math.min(80, t * 20);
+  const cy = H * 0.47 + Math.min(80, t * 15);
+
+  // deploy progress (canopy unfurls over 0.8s)
+  const deployProgress = Math.min(1, t * 1.25);
+  const jerkOffset = deployProgress < 1 ? Math.sin(deployProgress * Math.PI) * -20 * (1 - deployProgress) : 0;
+
+  const canopyW = 40 * deployProgress;
+  const canopyH = 22 * deployProgress;
+  const canopyY = cy - 50 * deployProgress + jerkOffset;
+
   // canopy
-  ctx.fillStyle = '#00ff88';
-  ctx.beginPath();
-  ctx.ellipse(cx, cy - 40, 30, 18, 0, Math.PI, 0);
-  ctx.fill();
-  // lines
-  ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 1;
-  for (let i = -2; i <= 2; i++) {
-    ctx.beginPath(); ctx.moveTo(cx + i * 12, cy - 28); ctx.lineTo(cx, cy); ctx.stroke();
+  if (deployProgress > 0.1) {
+    // canopy panels
+    const numPanels = 7;
+    for (let p = 0; p < numPanels; p++) {
+      const panelHue = p % 2 === 0 ? '#00ff88' : '#00cc66';
+      ctx.fillStyle = panelHue;
+      const startAngle = Math.PI + (p / numPanels) * Math.PI;
+      const endAngle = Math.PI + ((p + 1) / numPanels) * Math.PI;
+      ctx.beginPath();
+      ctx.ellipse(cx, canopyY, canopyW, canopyH, 0, startAngle, endAngle);
+      ctx.lineTo(cx, canopyY);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // canopy outline
+    ctx.strokeStyle = 'rgba(0,255,136,0.6)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.ellipse(cx, canopyY, canopyW, canopyH, 0, Math.PI, 0);
+    ctx.stroke();
+
+    // lines from canopy to body
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.lineWidth = 0.8;
+    for (let l = -3; l <= 3; l++) {
+      const lx = cx + l * (canopyW / 4) * deployProgress;
+      const ly = canopyY + canopyH * 0.3;
+      ctx.beginPath(); ctx.moveTo(lx, ly); ctx.lineTo(cx, cy + jerkOffset); ctx.stroke();
+    }
   }
-  // body
+
+  // skydiver body (hanging under canopy)
+  const bodyY = cy + jerkOffset;
+  ctx.save();
+  ctx.translate(cx, bodyY);
+
+  // suit
   ctx.fillStyle = '#1a1a3a';
-  ctx.beginPath(); ctx.ellipse(cx, cy + 5, 8, 12, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(0, 5, 10, 15, 0, 0, Math.PI * 2); ctx.fill();
+
   // helmet
   ctx.fillStyle = '#00ff88';
-  ctx.beginPath(); ctx.arc(cx, cy - 10, 6, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(0, -14, 8, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#222';
+  ctx.beginPath(); ctx.ellipse(0, -12, 6, 4, 0, 0, Math.PI); ctx.fill();
+
+  // arms (relaxed, hanging)
+  ctx.strokeStyle = '#1a1a3a'; ctx.lineWidth = 5; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(-8, -2); ctx.lineTo(-14, 12); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(8, -2); ctx.lineTo(14, 12); ctx.stroke();
+
+  // legs (together, hanging)
+  ctx.beginPath(); ctx.moveTo(-4, 18); ctx.lineTo(-6, 34); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(4, 18); ctx.lineTo(6, 34); ctx.stroke();
+
+  ctx.restore();
 }
 
-function drawBettingScene(t) {
-  // airplane interior hint
-  ctx.fillStyle = 'rgba(40, 50, 70, 0.3)';
+// ========== VIGNETTE ==========
+function drawVignette() {
+  const vg = ctx.createRadialGradient(W / 2, H / 2, W * 0.3, W / 2, H / 2, W * 0.8);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(0,0,0,0.35)');
+  ctx.fillStyle = vg;
   ctx.fillRect(0, 0, W, H);
-  // draw a simple airplane door/hatch
+}
+
+// ========== BETTING SCENE ==========
+function drawBettingScene(t) {
+  // airplane interior
+  ctx.fillStyle = 'rgba(35, 45, 65, 0.4)';
+  ctx.fillRect(0, 0, W, H);
+
+  // fuselage walls
+  const wallGrad = ctx.createLinearGradient(0, 0, W, 0);
+  wallGrad.addColorStop(0, 'rgba(60,70,90,0.3)');
+  wallGrad.addColorStop(0.1, 'rgba(50,60,80,0.1)');
+  wallGrad.addColorStop(0.9, 'rgba(50,60,80,0.1)');
+  wallGrad.addColorStop(1, 'rgba(60,70,90,0.3)');
+  ctx.fillStyle = wallGrad;
+  ctx.fillRect(0, 0, W, H);
+
+  // airplane door/hatch with rounded corners
   const doorX = W / 2, doorY = H * 0.35;
-  ctx.strokeStyle = 'rgba(0,220,255,0.2)';
-  ctx.lineWidth = 2;
-  ctx.strokeRect(doorX - 40, doorY - 50, 80, 100);
+  ctx.strokeStyle = 'rgba(0,220,255,0.25)';
+  ctx.lineWidth = 3;
+  roundRect(doorX - 45, doorY - 55, 90, 110, 8);
+  ctx.stroke();
+
+  // rivets around door
+  ctx.fillStyle = 'rgba(120,140,160,0.3)';
+  for (let i = 0; i < 12; i++) {
+    const angle = (i / 12) * Math.PI * 2;
+    const rx = doorX + Math.cos(angle) * 52;
+    const ry = doorY + Math.sin(angle) * 62;
+    ctx.beginPath(); ctx.arc(rx, ry, 1.5, 0, Math.PI * 2); ctx.fill();
+  }
+
   // sky visible through door
-  const dg = ctx.createRadialGradient(doorX, doorY, 10, doorX, doorY, 50);
-  dg.addColorStop(0, 'rgba(60,130,200,0.4)');
+  const dg = ctx.createRadialGradient(doorX, doorY, 5, doorX, doorY, 55);
+  dg.addColorStop(0, 'rgba(80,160,230,0.5)');
+  dg.addColorStop(0.7, 'rgba(40,100,180,0.3)');
   dg.addColorStop(1, 'rgba(20,40,80,0)');
   ctx.fillStyle = dg;
-  ctx.fillRect(doorX - 38, doorY - 48, 76, 96);
+  roundRect(doorX - 43, doorY - 53, 86, 106, 6);
+  ctx.fill();
 
-  // waiting skydivers (bots)
+  // wind streaks through door
+  ctx.strokeStyle = 'rgba(200,220,255,0.1)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 5; i++) {
+    const sy = doorY - 40 + (t * 50 + i * 25) % 90;
+    if (sy > doorY - 50 && sy < doorY + 50) {
+      ctx.beginPath();
+      ctx.moveTo(doorX - 30, sy);
+      ctx.lineTo(doorX + 30, sy + 5);
+      ctx.stroke();
+    }
+  }
+
+  // green jump light
+  const lightPhase = state.bettingTimer < 2 ? 1 : (Math.sin(t * 3) > 0 ? 0.8 : 0.3);
+  const lightColor = state.bettingTimer < 2 ? '#00ff88' : '#ff3355';
+  ctx.fillStyle = lightColor;
+  ctx.globalAlpha = lightPhase;
+  ctx.beginPath(); ctx.arc(doorX, doorY - 65, 5, 0, Math.PI * 2); ctx.fill();
+  // light glow
+  const lg = ctx.createRadialGradient(doorX, doorY - 65, 2, doorX, doorY - 65, 20);
+  lg.addColorStop(0, lightColor + '40');
+  lg.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = lg;
+  ctx.beginPath(); ctx.arc(doorX, doorY - 65, 20, 0, Math.PI * 2); ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // waiting skydivers (bots) as seated figures
   state.bots.forEach((bot, i) => {
-    const bx = 30 + (i % 4) * 40 + Math.sin(t + i) * 3;
-    const by = H * 0.6 + Math.floor(i / 4) * 35;
-    ctx.globalAlpha = 0.4;
-    ctx.fillStyle = '#556';
-    ctx.beginPath(); ctx.ellipse(bx, by, 6, 10, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(bx, by - 13, 5, 0, Math.PI * 2); ctx.fill();
+    const bx = 25 + (i % 4) * 45 + Math.sin(t * 0.5 + i) * 2;
+    const by = H * 0.62 + Math.floor(i / 4) * 40;
+    ctx.globalAlpha = 0.5;
+
+    // seated body
+    ctx.fillStyle = bot.color;
+    ctx.beginPath(); ctx.ellipse(bx, by, 7, 11, 0, 0, Math.PI * 2); ctx.fill();
+    // helmet
+    ctx.fillStyle = '#999';
+    ctx.beginPath(); ctx.arc(bx, by - 14, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#333';
+    ctx.beginPath(); ctx.ellipse(bx, by - 12, 5, 3, 0, 0, Math.PI); ctx.fill();
+    // legs (seated)
+    ctx.strokeStyle = bot.color; ctx.lineWidth = 4; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(bx - 4, by + 10); ctx.lineTo(bx - 8, by + 20); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(bx + 4, by + 10); ctx.lineTo(bx + 8, by + 20); ctx.stroke();
+
     ctx.globalAlpha = 1;
   });
 }
 
+// ========== MAIN RENDER ==========
 function render(timestamp) {
   const t = timestamp / 1000;
   ctx.clearRect(0, 0, W, H);
@@ -736,23 +1441,33 @@ function render(timestamp) {
   if (state.phase === 'BETTING' || state.phase === 'COUNTDOWN') {
     drawStars(1, t);
     drawClouds(1.5, t);
+    drawSun(1, t);
+    drawFog(1, t);
     drawBettingScene(t);
   } else if (state.phase === 'FALLING') {
+    drawEarthCurvature(m, t);
     drawStars(m, t);
     drawClouds(m, t);
+    drawSun(m, t);
+    drawFog(m, t);
     drawSpeedLines(m, t);
+    drawWindParticles(m, t);
+    drawWindEventParticles(m, t);
     drawBotParachutes(t);
     drawBotSkydivers(t, m);
     drawSkydiver(t, m);
   } else if (state.phase === 'CRASHED') {
     const elapsed = (Date.now() - state.crashTime) / 1000;
+    drawEarthCurvature(m, t);
     drawStars(m, t);
     drawClouds(m, t);
-    drawCrashedScene(elapsed);
+    drawCrashedScene(elapsed, m);
   } else if (state.phase === 'CASHED_OUT') {
     const elapsed = (Date.now() - state.cashoutTime) / 1000;
+    drawEarthCurvature(m, t);
     drawStars(m, t);
     drawClouds(m, t);
+    drawSun(m, t);
     drawBotParachutes(t);
     drawPlayerParachute(elapsed, m);
   }
@@ -761,6 +1476,9 @@ function render(timestamp) {
   drawParticles();
   state.particles.forEach(p => { p.x += p.vx; p.y += p.vy; p.life -= p.decay; });
   state.particles = state.particles.filter(p => p.life > 0);
+
+  // vignette overlay
+  drawVignette();
 
   requestAnimationFrame(render);
 }
@@ -780,8 +1498,7 @@ function updateUI() {
     mo.style.display = 'block';
     mt.textContent = state.currentMultiplier.toFixed(2) + 'x';
     mt.style.color = getMultiplierColor(state.currentMultiplier);
-    mt.style.textShadow = `0 0 40px ${getMultiplierColor(state.currentMultiplier)}40`;
-    // jitter if turbulence
+    mt.style.textShadow = `0 0 30px ${getMultiplierColor(state.currentMultiplier)}40`;
     if (state.windEvent === 'turbulence') {
       mt.style.transform = `translate(${(Math.random()-0.5)*4}px, ${(Math.random()-0.5)*4}px)`;
     } else {
@@ -804,7 +1521,7 @@ function updateUI() {
     mo.style.display = 'block';
     mt.textContent = state.crashPoint.toFixed(2) + 'x';
     mt.style.color = 'var(--red)';
-    mt.style.textShadow = '0 0 40px rgba(255,51,85,0.5)';
+    mt.style.textShadow = '0 0 30px rgba(255,51,85,0.5)';
     pt.style.display = 'block';
     pt.className = 'phase-text crashed-text';
     pt.textContent = 'CRASHED!';
@@ -812,7 +1529,7 @@ function updateUI() {
     mo.style.display = 'block';
     mt.textContent = state.cashoutMultiplier.toFixed(2) + 'x';
     mt.style.color = 'var(--green)';
-    mt.style.textShadow = '0 0 40px rgba(0,255,136,0.5)';
+    mt.style.textShadow = '0 0 30px rgba(0,255,136,0.5)';
     pt.style.display = 'block';
     pt.className = 'phase-text cashout-text';
     pt.innerHTML = `CASHED OUT!<br><span style="font-size:20px;color:var(--green)">+$${state.winAmount.toFixed(2)}</span>`;
@@ -823,7 +1540,7 @@ function updateUI() {
   if (state.phase === 'BETTING') {
     if (state.betPlaced) {
       btn.className = 'btn-main btn-waiting';
-      btn.textContent = 'BET PLACED ✓';
+      btn.textContent = 'BET PLACED \u2713';
       btn.disabled = true;
     } else {
       btn.className = 'btn-main btn-bet';
@@ -855,9 +1572,9 @@ function updateUI() {
   const wi = $('windIndicator');
   if (state.windEvent) {
     wi.classList.add('visible');
-    if (state.windEvent === 'updraft') { $('windIcon').textContent = '⬆'; $('windLabel').textContent = 'UPDRAFT'; $('windLabel').style.color = '#00ff88'; }
-    else if (state.windEvent === 'downdraft') { $('windIcon').textContent = '⬇'; $('windLabel').textContent = 'DOWNDRAFT'; $('windLabel').style.color = '#ff3355'; }
-    else { $('windIcon').textContent = '🌀'; $('windLabel').textContent = 'TURBULENCE'; $('windLabel').style.color = '#ffcc00'; }
+    if (state.windEvent === 'updraft') { $('windIcon').textContent = '\u2B06'; $('windLabel').textContent = 'UPDRAFT'; $('windLabel').style.color = '#00ff88'; }
+    else if (state.windEvent === 'downdraft') { $('windIcon').textContent = '\u2B07'; $('windLabel').textContent = 'DOWNDRAFT'; $('windLabel').style.color = '#ff3355'; }
+    else { $('windIcon').textContent = '\uD83C\uDF00'; $('windLabel').textContent = 'TURBULENCE'; $('windLabel').style.color = '#ffcc00'; }
   } else {
     wi.classList.remove('visible');
   }
@@ -868,7 +1585,7 @@ function updatePlayersPanel() {
   let html = '';
   state.bots.forEach(bot => {
     const cls = bot.cashedOut ? 'won' : (state.phase === 'CRASHED' ? 'lost' : 'active');
-    const mult = bot.cashedOut ? bot.mult.toFixed(2) + 'x' : (state.phase === 'FALLING' ? '...' : '—');
+    const mult = bot.cashedOut ? bot.mult.toFixed(2) + 'x' : (state.phase === 'FALLING' ? '...' : '\u2014');
     html += `<div class="player-entry ${cls}"><span class="name">${bot.name}</span><span class="mult">${mult}</span></div>`;
   });
   panel.innerHTML = html;
@@ -890,8 +1607,9 @@ async function startBettingPhase() {
   state.windEvent = null;
   state.parachuteOpen = false;
   state.particles = [];
+  state.canopyDeploy = 0;
+  state.crashTumble = 0;
 
-  // generate provably fair
   state.seed = generateSeed();
   state.hash = await hashSeed(state.seed);
   state.crashPoint = cappedCrashPoint();
@@ -900,7 +1618,6 @@ async function startBettingPhase() {
   $('pfSeed').textContent = 'Revealed after round';
   $('pfCrash').textContent = '?';
 
-  // calculate round parameters
   const cp = state.crashPoint;
   state.roundDuration = Math.max(8, Math.min(25, 5 + Math.log(cp) * 3.5));
   state.speed = Math.log(cp) / state.roundDuration;
@@ -955,7 +1672,6 @@ function startFalling() {
   audio.startWind();
   audio.startHeartbeat();
 
-  // schedule wind event
   if (state.crashPoint > 2) {
     const eventRoll = Math.random();
     if (eventRoll < 0.25) scheduleWindEvent('updraft');
@@ -972,7 +1688,6 @@ function startFalling() {
     audio.updateWind(state.currentMultiplier);
     audio.updateHeartbeat(state.currentMultiplier);
 
-    // bot cashouts
     state.bots.forEach(bot => {
       if (!bot.cashedOut && state.currentMultiplier >= bot.cashoutTarget) {
         bot.cashedOut = true;
@@ -981,19 +1696,16 @@ function startFalling() {
       }
     });
 
-    // auto cashout
     if (state.betPlaced && state.autoCashoutOn && state.currentMultiplier >= state.autoCashoutTarget) {
       doCashout();
       return;
     }
 
-    // wind event timing
     if (state.windEventTimer > 0) {
       state.windEventTimer -= 0.016;
       if (state.windEventTimer <= 0) state.windEvent = null;
     }
 
-    // crash check
     if (state.currentMultiplier >= state.crashPoint) {
       doCrash();
       return;
@@ -1019,6 +1731,13 @@ function scheduleWindEvent(type) {
     audio.playWindEvent(type);
     if (type === 'turbulence') {
       spawnParticles(W / 2, H / 2, 'rgba(255,200,0,0.5)', 15);
+    } else if (type === 'updraft') {
+      // spawn leaf particles
+      for (let i = 0; i < 10; i++) {
+        spawnParticles(Math.random() * W, H, '#5a9040', 1, { vy: -3, spread: 2, decay: 0.005, type: 'dust' });
+      }
+    } else if (type === 'downdraft') {
+      spawnParticles(W / 2, 0, 'rgba(150,180,220,0.4)', 20, { vy: 4, spread: 6, decay: 0.008 });
     }
   }, delay * 1000);
 }
@@ -1030,13 +1749,11 @@ function doCashout() {
   state.winAmount = state.bet * state.cashoutMultiplier;
   state.cashoutTime = Date.now();
 
-  // side bet check
   let sideBetWin = 0;
   if (state.sideBetOn) {
     if (state.crashPoint >= state.sideBetTarget) {
       sideBetWin = state.bet * 3;
     }
-    // side bet costs same as main bet
   }
 
   state.balance += state.winAmount + sideBetWin;
@@ -1045,7 +1762,7 @@ function doCashout() {
   audio.stopHeartbeat();
   audio.playCashout();
 
-  spawnParticles(W / 2, H * 0.4, '#00ff88', 25);
+  spawnParticles(W / 2, H * 0.4, '#00ff88', 30, { spread: 6, upward: true });
 
   updateUI();
 
@@ -1066,9 +1783,12 @@ function doCrash() {
   audio.stopHeartbeat();
   audio.playCrash();
 
-  spawnParticles(W / 2, H * 0.4, '#ff3355', 30);
+  spawnParticles(W / 2, H * 0.4, '#ff3355', 35, { spread: 8 });
+  // impact dust
+  setTimeout(() => {
+    spawnParticles(W / 2, H * 0.7, 'rgba(180,150,120,0.6)', 20, { spread: 5, vy: -1, decay: 0.008, type: 'dust', size: 4, sizeVar: 6 });
+  }, 500);
 
-  // mark remaining bots as lost
   state.bots.forEach(bot => {
     if (!bot.cashedOut) { bot.cashedOut = false; }
   });
@@ -1138,7 +1858,7 @@ document.querySelectorAll('.preset-btn').forEach(btn => {
 $('soundToggle').addEventListener('click', () => {
   audio.init();
   const on = audio.toggle();
-  $('soundToggle').textContent = on ? '🔊' : '🔇';
+  $('soundToggle').textContent = on ? '\uD83D\uDD0A' : '\uD83D\uDD07';
   $('soundToggle').classList.toggle('active', on);
 });
 
@@ -1154,7 +1874,6 @@ $('sideBetToggle').addEventListener('click', () => {
   $('sideBetToggle').classList.toggle('on');
 });
 
-// keyboard shortcut — space to bet/cashout
 document.addEventListener('keydown', e => {
   if (e.code === 'Space') { e.preventDefault(); handleAction(); }
 });
