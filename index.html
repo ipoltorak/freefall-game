@@ -1695,7 +1695,7 @@ function startFalling() {
       if (!bot.cashedOut && state.currentMultiplier >= bot.cashoutTarget) {
         bot.cashedOut = true;
         bot.mult = state.currentMultiplier;
-        bot.cashoutTime = Date.now() / 1000;
+        bot.cashoutTime = performance.now() / 1000;
       }
     });
 
